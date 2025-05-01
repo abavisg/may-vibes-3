@@ -198,18 +198,22 @@ if not st.session_state.df.empty:
     # --- Ensure latest emails are always at the top before display ---
     st.session_state.df = st.session_state.df.sort_values(by='date', ascending=False)
 
-    # Define base column configuration
+    # --- Dynamically configure columns ---
+    # Base config: always hide UID, always make Category a Selectbox
     column_config = {
-        "uid": None, # Always hide UID
+        "uid": None,
         "category": st.column_config.SelectboxColumn(
             "Category",
             options=["Uncategorised", "Action", "Read", "Events", "Information"],
             required=True,
+            # help="Select email category", # Optional help text
+            # width="medium", # Optional width
         ),
-        # Define other columns if needed for width etc.
     }
-    # Define columns to disable editing (base)
-    disabled_columns = ["date", "from", "subject", "uid", "category"]
+
+    # Define columns to disable editing
+    # Start with non-editable data columns
+    disabled_columns = ["date", "from", "subject", "uid"]
 
     # Conditionally add the 'Select' column configuration
     if st.session_state.manual_selection_mode:
@@ -218,20 +222,21 @@ if not st.session_state.df.empty:
             help="Select emails to move",
             default=False,
         )
-        # Allow editing the Select column only in manual mode
-        # No change needed to disabled_columns as 'Select' is not in the base list
+        # Do NOT disable category when select is active, 
+        # relying on workflow to guide changes?
+        # disabled_columns.append("category") # Temporarily removed
     else:
         # Hide the Select column if not in manual mode
         column_config["Select"] = None
-        # Add Select to disabled if it exists but shouldn't be editable (belt-and-braces)
-        # disabled_columns.append("Select") # Not strictly needed if hidden
+        # Also don't disable category here for testing
+        # disabled_columns.append("category") # Temporarily removed
 
     edited_df = st.data_editor(
-        st.session_state.df, # Pass the potentially re-sorted DataFrame
+        st.session_state.df,
         use_container_width=True,
         height=600,
-        column_config=column_config, # Pass the dynamic config
-        disabled=disabled_columns, # Pass the appropriate disabled list
+        column_config=column_config,
+        disabled=disabled_columns, # Pass the list WITHOUT category
         key="data_editor"
     )
 
