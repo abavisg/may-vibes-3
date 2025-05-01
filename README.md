@@ -83,5 +83,12 @@ This is a monolithic desktop-like application running locally using Streamlit.
     ```
 3.  The application should open in your default web browser.
 
+## Things to improve
+
+- Google login (OAuth 2.0) to replace the need for App Passwords.
+- Further UI/UX improvements (e.g., pagination, advanced filtering, custom themes).
+- LLM Categorisation: Integrate local LLMs (e.g., via Ollama with Deepseek/Llama models) for more nuanced categorization.
+- Packaging: Bundle the application as a standalone desktop app (e.g., using PyInstaller or similar), or explore web/mobile deployment options.
+
 ## License
 MIT
