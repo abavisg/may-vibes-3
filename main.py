@@ -72,17 +72,19 @@ if st.button("Categorize Emails"):
         st.warning("No emails fetched to categorize.")
     else:
         with st.spinner("Categorizing..."):
-            # Run categorization on the raw email list
-            categorized_email_list = categorize_emails(st.session_state.emails.copy()) # Operate on a copy
-            # Update the DataFrame in session state
+            # Run categorization on a copy of the raw email list
+            categorized_email_list = categorize_emails(st.session_state.emails.copy())
+            # Create a new DataFrame with the results
             temp_df = pd.DataFrame(categorized_email_list)
-            # Preserve manual edits if any? For now, overwrite with categorized data.
+            # Re-order columns and update the session state DataFrame
+            # This makes the categorization visible but doesn't alter the base emails list
+            # Manual edits from before categorization will be overwritten here.
             st.session_state.df = temp_df[['date', 'from', 'subject', 'category', 'uid']]
-            st.toast("Categorization applied!")
+            st.toast("Categorization applied for this session!")
 
 # --- Email Editor Table ---
 if not st.session_state.df.empty:
-    # Define categories for the dropdown - REMOVED "Other"
+    # Define categories for the dropdown
     categories = ["Uncategorised", "Action", "Read", "Events", "Information"]
 
     edited_df = st.data_editor(
@@ -107,6 +109,13 @@ if not st.session_state.df.empty:
     if not edited_df.equals(st.session_state.df):
         st.session_state.df = edited_df
         st.toast("Manual category change saved!")
+
+    # --- Category Summary --- Display counts based on the current state of the DataFrame
+    if not st.session_state.df.empty:
+        category_counts = st.session_state.df['category'].value_counts().sort_index()
+        summary_items = [f"{cat}: {count}" for cat, count in category_counts.items()]
+        summary_text = " | ".join(summary_items)
+        st.markdown(f"**Inbox Status:** {summary_text}")
 
 else:
     st.write("No emails to display.")
