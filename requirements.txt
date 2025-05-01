@@ -2,4 +2,3 @@ streamlit==1.35.0
 imapclient==3.0.0
 python-dotenv==1.0.1
 pandas==2.2.2
-beautifulsoup4==4.12.3 '
