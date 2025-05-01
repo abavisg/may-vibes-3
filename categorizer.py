@@ -1,5 +1,3 @@
-import re
-
 def categorize_email(email_data):
     """Categorizes a single email based on simple rules."""
     subject = email_data.get('subject', '').lower()

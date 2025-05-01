@@ -13,8 +13,9 @@ def connect_imap():
     try:
         with IMAPClient(imap_host) as server:
             server.login(imap_user, imap_pass)
-            print(f'IMAP connection successful to {imap_host} as {imap_user}') # Log success
+            # Consider adding logging here if desired
+            # print(f'IMAP connection successful to {imap_host} as {imap_user}')
             return f'Connected to {imap_host} as {imap_user}'
     except Exception as e:
-        print(f"IMAP connection failed: {e}") # Log failure
+        # print(f"IMAP connection failed: {e}")
         return f'Connection failed: {e}'

@@ -1,7 +1,8 @@
 import streamlit as st
 from dotenv import load_dotenv
 import os
-from email_client import connect_imap
+from email_client import connect_imap # Only import connect_imap
+from email_mover import move_emails # Import from new file
 from email_fetcher import fetch_inbox_emails
 from categorizer import categorize_emails # Import categorizer
 import pandas as pd
@@ -64,6 +65,8 @@ if "Connected to" in connection_status and not st.session_state.emails:
                 temp_df = pd.DataFrame(st.session_state.emails)
                 temp_df['category'] = 'Uncategorised'
                 temp_df['Select'] = False # Add Select column
+                temp_df['date'] = pd.to_datetime(temp_df['date'])
+                temp_df = temp_df.sort_values(by='date', ascending=False)
                 st.session_state.df = temp_df[['Select', 'date', 'from', 'subject', 'category', 'uid']] # Add Select first
             else:
                 st.write("No emails fetched or inbox is empty.")
@@ -88,6 +91,8 @@ if not st.session_state.manual_selection_mode:
                     categorized_email_list = categorize_emails(st.session_state.emails.copy())
                     temp_df = pd.DataFrame(categorized_email_list)
                     temp_df['Select'] = False # Ensure Select column exists after categorize
+                    temp_df['date'] = pd.to_datetime(temp_df['date'])
+                    temp_df = temp_df.sort_values(by='date', ascending=False)
                     st.session_state.df = temp_df[['Select', 'date', 'from', 'subject', 'category', 'uid']]
                     st.session_state.categorization_run = True
                     st.session_state.show_move_confirmation = False # Hide confirmation if open
@@ -119,11 +124,30 @@ if st.session_state.show_move_confirmation and not st.session_state.manual_selec
     confirm_items = [f"{cat}: {count}" for cat, count in st.session_state.move_counts.items() if count > 0]
     confirm_text = " | ".join(confirm_items)
     st.warning(f"Confirm moving emails? -> {confirm_text}")
-    col_confirm_yes, col_confirm_no, col_confirm_manual = st.columns(3) # Add 3rd column
+    col_confirm_yes, col_confirm_no, col_confirm_manual = st.columns(3)
     with col_confirm_yes:
         if st.button("✅ Yes, Move All"):
-            st.toast("Move confirmed (Not implemented yet). Preparing to move...")
+            with st.spinner("Moving emails..."):
+                # Filter DataFrame for relevant categories
+                relevant_df = st.session_state.df[st.session_state.df['category'].isin(["Action", "Read", "Events"])].copy()
+                if not relevant_df.empty:
+                    uids_to_move = relevant_df['uid'].tolist()
+                    category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
+                    
+                    # Call the move function
+                    moved_uids = move_emails(uids_to_move, category_map)
+
+                    if moved_uids:
+                        st.toast(f"Moved {len(moved_uids)} email(s). Test mode might be active.")
+                        # Remove moved emails from session state df and emails list
+                        st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
+                        st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
+                    else:
+                        st.toast("Move operation attempted, but no emails were moved.")
+                else:
+                    st.toast("No relevant emails found to move.")
             st.session_state.show_move_confirmation = False
+            st.rerun()
     with col_confirm_no:
         if st.button("❌ No, Cancel"):
             st.session_state.show_move_confirmation = False
@@ -139,16 +163,25 @@ if st.session_state.manual_selection_mode:
     if st.button("Move Selected Emails"):
         if not st.session_state.df.empty:
             selected_df = st.session_state.df[st.session_state.df['Select'] == True]
-            # Filter again to only include relevant categories
             relevant_categories_to_move = ["Action", "Read", "Events"]
-            selected_to_move = selected_df[selected_df['category'].isin(relevant_categories_to_move)]
-            uids_to_move = selected_to_move['uid'].tolist()
+            selected_to_move = selected_df[selected_df['category'].isin(relevant_categories_to_move)].copy()
+            
+            if not selected_to_move.empty:
+                uids_to_move = selected_to_move['uid'].tolist()
+                category_map = pd.Series(selected_to_move.category.values, index=selected_to_move.uid).to_dict()
+                
+                with st.spinner("Moving selected emails..."):
+                    # Call the move function
+                    moved_uids = move_emails(uids_to_move, category_map)
 
-            if uids_to_move:
-                st.toast(f"Moving {len(uids_to_move)} selected emails (Not implemented yet): {uids_to_move[:5]}...")
-                # Add actual move logic here using uids_to_move
-                st.session_state.manual_selection_mode = False # Exit manual mode
-                # Optionally: Refresh email list or update UI
+                    if moved_uids:
+                        st.toast(f"Moved {len(moved_uids)} selected email(s). Test mode might be active.")
+                        # Remove moved emails from session state df and emails list
+                        st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
+                        st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
+                    else:
+                        st.toast("Move operation attempted, but no emails were moved.")
+                st.session_state.manual_selection_mode = False
                 st.rerun()
             else:
                 st.warning("No emails selected from Action, Read, or Events categories.")
@@ -162,6 +195,9 @@ if st.session_state.manual_selection_mode:
 
 # --- Email Editor Table ---
 if not st.session_state.df.empty:
+    # --- Ensure latest emails are always at the top before display ---
+    st.session_state.df = st.session_state.df.sort_values(by='date', ascending=False)
+
     # Define base column configuration
     column_config = {
         "uid": None, # Always hide UID
@@ -191,7 +227,7 @@ if not st.session_state.df.empty:
         # disabled_columns.append("Select") # Not strictly needed if hidden
 
     edited_df = st.data_editor(
-        st.session_state.df,
+        st.session_state.df, # Pass the potentially re-sorted DataFrame
         use_container_width=True,
         height=600,
         column_config=column_config, # Pass the dynamic config
