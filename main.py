@@ -47,12 +47,17 @@ if "Connected to" in connection_status:
     with st.spinner("Fetching emails..."):
         try:
             fetched_emails = fetch_inbox_emails()
-            # Log message is now in fetch_inbox_emails
             if fetched_emails:
                 df = pd.DataFrame(fetched_emails)
                 df = df.sort_values(by='date', ascending=False)
                 df = df[['date', 'from', 'subject']]
                 st.dataframe(df, use_container_width=True, height=600)
+
+                # --- Categorization Button ---
+                if st.button("Categorize Emails (Placeholder)"):
+                    st.toast("Categorization logic not implemented yet.")
+                    # Placeholder for future categorization call
+                    pass
             else:
                 st.write("No emails fetched or inbox is empty.")
         except Exception as e:
