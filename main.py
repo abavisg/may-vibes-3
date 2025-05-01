@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import os
 from email_client import connect_imap
 from email_fetcher import fetch_inbox_emails
+from categorizer import categorize_emails # Import categorizer
 import pandas as pd
 
 # --- Page Configuration ---
@@ -26,6 +27,12 @@ html, body, [class*="st-"], .stDataFrame {
 </style>
 """, unsafe_allow_html=True)
 
+# --- Initialize Session State ---
+if 'emails' not in st.session_state:
+    st.session_state.emails = [] # Raw fetched email list
+if 'df' not in st.session_state:
+    st.session_state.df = pd.DataFrame() # DataFrame for display/editing
+
 # --- Load Environment Variables ---
 load_dotenv()
 gmail_address = os.getenv('GMAIL_ADDRESS', 'Not set') # Used in expander
@@ -40,27 +47,66 @@ with st.expander("Connection Details", expanded=False):
     connection_status = connect_imap()
     st.write(f'IMAP Connection Status: {connection_status}')
 
-# --- Email Fetching and Display ---
-st.header("Inbox Emails")
-
-if "Connected to" in connection_status:
-    with st.spinner("Fetching emails..."):
+# --- Fetch Emails (Only if not already fetched) ---
+if "Connected to" in connection_status and not st.session_state.emails:
+    with st.spinner("Fetching initial emails..."):
         try:
-            fetched_emails = fetch_inbox_emails()
-            if fetched_emails:
-                df = pd.DataFrame(fetched_emails)
-                df = df.sort_values(by='date', ascending=False)
-                df = df[['date', 'from', 'subject']]
-                st.dataframe(df, use_container_width=True, height=600)
-
-                # --- Categorization Button ---
-                if st.button("Categorize Emails (Placeholder)"):
-                    st.toast("Categorization logic not implemented yet.")
-                    # Placeholder for future categorization call
-                    pass
+            st.session_state.emails = fetch_inbox_emails()
+            if st.session_state.emails:
+                temp_df = pd.DataFrame(st.session_state.emails)
+                temp_df['category'] = 'Uncategorised' # Add default category
+                st.session_state.df = temp_df[['date', 'from', 'subject', 'category', 'uid']] # Add category, keep uid hidden later
             else:
                 st.write("No emails fetched or inbox is empty.")
         except Exception as e:
             st.error(f"Error fetching emails: {e}")
-else:
+elif "Connected to" not in connection_status:
     st.warning("Cannot fetch emails. Please check IMAP connection.")
+
+# --- Display Area ---
+st.header("Inbox Emails")
+
+# --- Categorization Button --- (Place before editor for better flow)
+if st.button("Categorize Emails"):
+    if not st.session_state.emails:
+        st.warning("No emails fetched to categorize.")
+    else:
+        with st.spinner("Categorizing..."):
+            # Run categorization on the raw email list
+            categorized_email_list = categorize_emails(st.session_state.emails.copy()) # Operate on a copy
+            # Update the DataFrame in session state
+            temp_df = pd.DataFrame(categorized_email_list)
+            # Preserve manual edits if any? For now, overwrite with categorized data.
+            st.session_state.df = temp_df[['date', 'from', 'subject', 'category', 'uid']]
+            st.toast("Categorization applied!")
+
+# --- Email Editor Table ---
+if not st.session_state.df.empty:
+    # Define categories for the dropdown - REMOVED "Other"
+    categories = ["Uncategorised", "Action", "Read", "Events", "Information"]
+
+    edited_df = st.data_editor(
+        st.session_state.df,
+        use_container_width=True,
+        height=600,
+        column_config={
+            "uid": None, # Hide UID column
+            "category": st.column_config.SelectboxColumn(
+                "Category",
+                help="Select the email category",
+                width="medium",
+                options=categories, # Use updated list without Other
+                required=True,
+            )
+        },
+        disabled=["date", "from", "subject", "uid"], # Disable editing for other columns
+        key="data_editor"
+    )
+
+    # Update session state if edits were made
+    if not edited_df.equals(st.session_state.df):
+        st.session_state.df = edited_df
+        st.toast("Manual category change saved!")
+
+else:
+    st.write("No emails to display.")
