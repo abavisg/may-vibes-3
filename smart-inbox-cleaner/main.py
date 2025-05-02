@@ -1,12 +1,19 @@
 import streamlit as st
-# from dotenv import load_dotenv # Removed dotenv
-import os
-# from email_client import connect_imap # Removed old connect
-from email_client import connect_oauth # Use new OAuth connect
+import logging # Use logging
+# Removed os import
+from email_client import connect_oauth
 from email_mover import move_emails
 from email_fetcher import fetch_inbox_emails
-from categorizer import categorize_emails
+from categorizer import (
+    categorize_emails, 
+    CAT_ACTION, CAT_READ, CAT_EVENTS, CAT_INFO, CAT_UNCATEGORISED, # Import constants
+    MOVE_CATEGORIES, RULE_CATEGORIES
+)
 import pandas as pd
+
+# --- Setup Logging (Optional: Configure Streamlit's logger if needed) ---
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') 
+# Streamlit might configure logging, check behaviour if duplicating.
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -87,7 +94,7 @@ else:
                     st.session_state.emails = fetch_inbox_emails(st.session_state.imap_client)
                     if st.session_state.emails:
                         temp_df = pd.DataFrame(st.session_state.emails)
-                        temp_df['category'] = 'Uncategorised'
+                        temp_df['category'] = CAT_UNCATEGORISED # Use constant
                         temp_df['Select'] = False
                         temp_df['date'] = pd.to_datetime(temp_df['date']) # Ensure date is datetime type
                         temp_df = temp_df.sort_values(by='date', ascending=False)
@@ -135,20 +142,20 @@ else:
             move_button_disabled = True
             if st.session_state.categorization_run and not st.session_state.df.empty:
                 category_counts = st.session_state.df['category'].value_counts()
-                relevant_categories = ["Action", "Read", "Events"]
-                relevant_present = any(cat in category_counts for cat in relevant_categories if category_counts.get(cat, 0) > 0)
+                # relevant_categories = ["Action", "Read", "Events"] # Use constant list
+                relevant_present = any(cat in category_counts for cat in MOVE_CATEGORIES if category_counts.get(cat, 0) > 0)
                 if relevant_present:
                     move_button_disabled = False
 
             if st.button("Move All Categorized", disabled=move_button_disabled):
-                relevant_categories_to_move = ["Action", "Read", "Events"]
+                # relevant_categories_to_move = ["Action", "Read", "Events"] # Use constant list
                 current_counts = st.session_state.df['category'].value_counts()
-                st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in relevant_categories_to_move if cat in current_counts and current_counts.get(cat, 0) > 0}
+                st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
                 if st.session_state.move_counts:
                      st.session_state.show_move_confirmation = True
                      st.rerun() # Show confirmation immediately
                 else:
-                     st.toast("No emails found in Action, Read, or Events categories to move.")
+                     st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.") # Use constants in message
                      st.session_state.show_move_confirmation = False
 
     # --- Move Confirmation Dialog (Inline, conditional display) ---
@@ -163,7 +170,7 @@ else:
                     st.error("IMAP client not available. Cannot move emails.")
                 else:
                     with st.spinner("Moving emails..."):
-                        relevant_df = st.session_state.df[st.session_state.df['category'].isin(["Action", "Read", "Events"])].copy()
+                        relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy() # Use constant
                         if not relevant_df.empty:
                             uids_to_move = relevant_df['uid'].tolist()
                             category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
@@ -200,8 +207,8 @@ else:
                     st.error("IMAP client not available. Cannot move emails.")
                 elif not st.session_state.df.empty:
                     selected_df = st.session_state.df[st.session_state.df['Select'] == True]
-                    relevant_categories_to_move = ["Action", "Read", "Events"]
-                    selected_to_move = selected_df[selected_df['category'].isin(relevant_categories_to_move)].copy()
+                    # relevant_categories_to_move = ["Action", "Read", "Events"] # Use constant list
+                    selected_to_move = selected_df[selected_df['category'].isin(MOVE_CATEGORIES)].copy() # Use constant
                     if not selected_to_move.empty:
                         uids_to_move = selected_to_move['uid'].tolist()
                         category_map = pd.Series(selected_to_move.category.values, index=selected_to_move.uid).to_dict()
@@ -218,7 +225,7 @@ else:
                         st.session_state.manual_selection_mode = False
                         st.rerun()
                     else:
-                        st.warning("No valid emails selected (must be Action, Read, or Events).")
+                        st.warning(f"No valid emails selected (must be {', '.join(MOVE_CATEGORIES)}).") # Use constants
                 else:
                     st.warning("No emails loaded.")
         with col_cancel_sel:
@@ -239,7 +246,8 @@ else:
             "uid": None, # Hide UID
             "category": st.column_config.SelectboxColumn(
                 "Category",
-                options=["Uncategorised", "Action", "Read", "Events", "Information"],
+                # Use all defined rule categories + Uncategorised for the dropdown
+                options=[CAT_UNCATEGORISED] + RULE_CATEGORIES, 
                 required=True,
             ),
             "date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm:ss"),
@@ -291,9 +299,9 @@ else:
         if st.session_state.imap_client:
             try:
                 st.session_state.imap_client.logout()
-                print("IMAP client logged out.")
+                logging.info("IMAP client logged out.") # Use logging
             except Exception as e:
-                print(f"Error during IMAP logout: {e}")
+                logging.error(f"Error during IMAP logout: {e}") # Use logging
         # Clear session state related to login
         st.session_state.logged_in = False
         st.session_state.imap_client = None

@@ -4,7 +4,8 @@ A local desktop-like productivity tool that helps you triage your inbox using GT
 
 ## Features
 
-- **IMAP Connectivity**: Connects securely to your Gmail inbox (using App Passwords).
+- **Google OAuth 2.0 Login**: Connects securely to your Gmail inbox using Google Sign-In (OAuth 2.0) via a browser-based flow.
+- **IMAP Connectivity**: Uses the obtained OAuth token for secure IMAP access (XOAUTH2).
 - **Email Display**: Fetches and displays the latest 250 emails in a sortable table (Date, From, Subject).
 - **Automatic Categorization**: Applies rule-based logic (keywords, senders) to suggest categories (Action, Read, Events, Uncategorised) upon button click.
 - **Manual Categorization**: Allows overriding the suggested category via a dropdown in the table.
@@ -21,7 +22,8 @@ A local desktop-like productivity tool that helps you triage your inbox using GT
 - **UI Framework:** Streamlit
 - **Email Protocol:** IMAP (via `imapclient` library)
 - **Data Handling:** Pandas
-- **Environment Variables:** `python-dotenv`
+- **Environment Variables:** `python-dotenv` (Minimal usage now, primarily for optional settings like `TEST_MODE_MOVE_ONE`).
+- **Authentication:** `google-auth-oauthlib`, `google-api-python-client`
 
 ## Architecture
 
@@ -30,17 +32,21 @@ This is a monolithic desktop-like application running locally using Streamlit.
 - **`main.py`**: Serves as the entry point and UI layer.
 - **UI Interaction**: Uses Streamlit widgets (`st.button`, `st.data_editor`, etc.) and `st.session_state` to manage user interaction and application state.
 - **Backend Logic Modules**:
-    - `email_client.py`: Handles IMAP connection.
+    - `auth.py`: Handles Google OAuth 2.0 flow and token management.
+    - `email_client.py`: Handles IMAP connection using OAuth tokens.
     - `email_fetcher.py`: Fetches email data from the IMAP server.
     - `categorizer.py`: Applies rules to categorize emails.
     - `email_mover.py`: Executes IMAP commands to move emails.
-- **Configuration**: Reads sensitive credentials and settings from a `.env` file.
-- **Data Flow**: 
-    1. Connect to IMAP.
-    2. Fetch emails into a Pandas DataFrame stored in session state.
-    3. Display DataFrame in `st.data_editor`.
-    4. User triggers categorization or manual edits, updating the DataFrame in session state.
-    5. User triggers email move, which reads the DataFrame state and interacts with the IMAP server via `email_mover.py`.
+- **Configuration**: Uses `client_secret.json` for OAuth setup and stores refresh tokens in `token.json` (both within `gmail-oauth/` folder).
+- **Data Flow**:
+    1. User clicks "Login with Google", initiating OAuth flow via `auth.py`.
+    2. Browser opens for Google authentication.
+    3. Upon success, credentials (including access/refresh tokens) are obtained and stored.
+    4. `email_client.py` uses credentials to establish IMAP connection.
+    5. Fetch emails into a Pandas DataFrame stored in session state.
+    6. Display DataFrame in `st.data_editor`.
+    7. User triggers categorization or manual edits, updating the DataFrame in session state.
+    8. User triggers email move, which reads the DataFrame state and interacts with the IMAP server via `email_mover.py` using the established client.
 
 ## Setup the application
 
@@ -48,6 +54,7 @@ This is a monolithic desktop-like application running locally using Streamlit.
     ```bash
     git clone <repository_url>
     cd <repository_directory>
+    cd smart-inbox-cleaner
     ```
 
 2.  **Create a virtual environment** (recommended):
@@ -61,34 +68,60 @@ This is a monolithic desktop-like application running locally using Streamlit.
     pip install -r requirements.txt
     ```
 
-4.  **Create a `.env` file** in the root folder with your email credentials. 
-    *   For Gmail, you'll need an [App Password](https://support.google.com/accounts/answer/185833?hl=en) if you use 2-Step Verification.
-    *   Make sure IMAP is enabled in your Gmail settings.
-    *   **Important:** Add `.env` to your `.gitignore` file to avoid committing your credentials!
+4.  **Set up Google Cloud Project & Credentials**:
+    *   Go to the [Google Cloud Console](https://console.cloud.google.com/).
+    *   Create a new project (or select an existing one).
+    *   Enable the **Gmail API** for your project.
+    *   Go to "Credentials" -> "Create Credentials" -> "OAuth client ID".
+    *   Select **"Desktop app"** as the Application type.
+    *   Give it a name (e.g., "Smart Inbox Cleaner Local").
+    *   Click "Create".
+    *   Download the JSON file containing your client ID and client secret. Rename this file to `client_secret.json`.
 
-    Example `.env` content:
+5.  **Place Credentials File**:
+    *   Create a folder named `gmail-oauth` in the root directory of the cloned repository (i.e., at the same level as the `smart-inbox-cleaner` folder).
+    *   Place the downloaded `client_secret.json` file inside this `gmail-oauth` folder.
+    *   The final path should be `<repository_root>/gmail-oauth/client_secret.json`.
+
+6.  **Verify `.gitignore`**:
+    *   Ensure your `.gitignore` file (at the root) includes entries to ignore the credentials and token files:
+      ```gitignore
+      # ... other entries
+      gmail-oauth/client_secret.json
+      gmail-oauth/token.json
+      # ... other entries
+      ```
+    *   This prevents accidentally committing sensitive files.
+
+7.  **(Optional) Configure Test Mode**: You can create a `.env` file in the `smart-inbox-cleaner` directory to control the test mode flag:
     ```plaintext
-    EMAIL_HOST=imap.gmail.com
-    EMAIL_USERNAME=your_email@gmail.com
-    EMAIL_PASSWORD=your_16_digit_app_password
-    GMAIL_ADDRESS=your_email@gmail.com # Optional, used for display
+    # Set to False to move all matched emails at once
+    TEST_MODE_MOVE_ONE=True
     ```
 
 ## Run the application
 
-1.  Make sure your virtual environment is activated.
-2.  Run the Streamlit app:
+1.  Make sure your virtual environment is activated (`source venv/bin/activate`).
+2.  Navigate into the application directory:
+    ```bash
+    cd smart-inbox-cleaner
+    ```
+3.  Run the Streamlit app:
     ```bash
     streamlit run main.py
     ```
-3.  The application should open in your default web browser.
+4.  The application should open in your default web browser, presenting a "Login with Google" button.
+5.  Click the button. Your browser should open a Google login page.
+6.  Choose your account and grant the requested permission (to view and manage your email).
+7.  After successful authentication, the browser tab may show a success message, and the Streamlit app should proceed to load your emails.
+8.  A `token.json` file will be created in the `gmail-oauth` folder to store your refresh token for future sessions (so you don't have to log in every time).
 
 ## Things to improve
 
-- Google login (OAuth 2.0) to replace the need for App Passwords.
 - Further UI/UX improvements (e.g., pagination, advanced filtering, custom themes).
 - LLM Categorisation: Integrate local LLMs (e.g., via Ollama with Deepseek/Llama models) for more nuanced categorization.
 - Packaging: Bundle the application as a standalone desktop app (e.g., using PyInstaller or similar), or explore web/mobile deployment options.
+- Robust Error Handling: Improve handling of potential API/network errors during OAuth or IMAP operations.
 
 ## License
 MIT

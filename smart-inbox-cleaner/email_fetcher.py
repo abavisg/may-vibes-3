@@ -1,9 +1,10 @@
 from imapclient import IMAPClient
 import logging
+from typing import List, Dict, Any
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def fetch_inbox_emails(server: IMAPClient, batch_size=250):
+def fetch_inbox_emails(server: IMAPClient, batch_size: int = 250) -> List[Dict[str, Any]]:
     """Fetch metadata for the latest batch_size emails from the INBOX using the provided client."""
     # Removed internal connection logic
 
