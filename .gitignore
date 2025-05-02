@@ -8,6 +8,7 @@ __pycache__/
 
 # Env
 .env
+gmail-oauth/client_secret.json
 
 # Logs
 logs/
