@@ -143,6 +143,9 @@ else:
             help="Ensure the selected model is available in your local Ollama instance."
         )
 
+    # --- REMOVED: Test Mode Toggle ---
+    # No longer needed as limit is controlled by .env
+
     # --- Fetch Emails (Only if not already fetched) ---
     if not st.session_state.emails:
         with st.spinner("Fetching initial emails..."):
@@ -262,24 +265,47 @@ else:
                      st.session_state.categorization_running = False # Ensure state is reset
                      
                      if was_stopped:
-                         # Warning/cleanup handled by Stop button logic
+                         logging.info("Categorization stopped by user.") # Added logging
                          pass 
                      elif categorized_email_list is None and st.session_state.categorization_method == CAT_METHOD_LLM:
                          st.warning("Categorization stopped or failed unexpectedly.")
                          progress_bar_placeholder.empty()
                      elif categorized_email_list:
-                         # ... (update dataframe logic - unchanged) ...
+                         # -- START Added Logging --
+                         logging.info(f"Categorization successful. Received {len(categorized_email_list)} emails back.")
+                         if len(categorized_email_list) > 0:
+                             # Log categories from the first few results
+                             try:
+                                 categories_sample = [e.get('category', 'MISSING') for e in categorized_email_list[:5]]
+                                 logging.info(f"Sample categories from result list: {categories_sample}")
+                             except Exception as log_err:
+                                 logging.error(f"Error logging category sample: {log_err}")
+                         # -- END Added Logging --
+                         
+                         # ... (update dataframe logic) ...
                          temp_df = pd.DataFrame(categorized_email_list)
                          temp_df['Select'] = False
                          temp_df['date'] = pd.to_datetime(temp_df['date'])
                          temp_df = temp_df.sort_values(by='date', ascending=False)
+                         # Ensure 'category' column exists before selecting it
+                         if 'category' not in temp_df.columns:
+                             logging.error("'category' column missing from DataFrame after categorization!")
+                             temp_df['category'] = CAT_UNCATEGORISED # Add default if missing
+                             
                          st.session_state.df = temp_df[['Select', 'date', 'from', 'subject', 'category', 'uid']]
+                         # -- START Added Logging --
+                         logging.info(f"Updated st.session_state.df. Shape: {st.session_state.df.shape}")
+                         if not st.session_state.df.empty:
+                             logging.info(f"First 5 rows of updated st.session_state.df:\n{st.session_state.df.head().to_string()}")
+                         # -- END Added Logging --
+                         
                          st.session_state.categorization_run = True
                          st.session_state.show_move_confirmation = False
                          duration = pd.Timestamp.now() - start_time
                          st.toast(f"Categorization complete in {duration.total_seconds():.2f}s!")
                          if progress_bar: progress_bar.progress(1.0, text="Categorization complete!") 
                      else: # Completed but no results
+                         logging.warning("Categorization function returned an empty list or None (and wasn't stopped).") # Added logging
                          st.warning("Categorization ran but produced no results.")
                          progress_bar_placeholder.empty()
                  
