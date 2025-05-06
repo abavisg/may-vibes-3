@@ -1,6 +1,6 @@
 # 📥 Smart Inbox Cleaner
 
-A local desktop-like productivity tool that helps you triage your inbox using GTD principles. 
+A local desktop-like productivity tool that helps you triage your inbox using GTD principles. Now available as both a web app (Streamlit) and a native desktop app (Electron).
 
 ## Features
 
@@ -14,11 +14,11 @@ A local desktop-like productivity tool that helps you triage your inbox using GT
 - **Manual Categorization**: Allows overriding the suggested category via a dropdown in the table.
 - **Category Summary**: Shows a live count of emails per category below the table.
 - **Bulk Email Moving**: Moves all emails categorized as Action, Read, or Events to corresponding `SmartInbox/` subfolders (with confirmation).
-- **Manual Selection Moving**: Allows manually selecting specific emails (via checkboxes) from Action, Read, or Events categories to be moved.
 - **IMAP Folder Creation**: Automatically creates necessary `SmartInbox/` subfolders if they don't exist.
 - **Desktop App Feel**: Uses Streamlit's wide layout and custom styling for a cleaner interface.
 - **Authentication:** `google-auth-oauthlib`, `google-api-python-client`
 - **LLM Integration:** `ollama` (via local Ollama instance)
+- **Manual Selection Moving**: Allows manually selecting specific emails (via checkboxes) from Action, Read, or Events categories to be moved.
 
 ## Tech stack
 
@@ -41,101 +41,192 @@ This is a monolithic desktop-like application running locally using Streamlit.
     - `categorizer.py`: Applies rule-based logic to categorize emails.
     - `llm_categorizer.py`: Uses Ollama to categorize emails via LLM.
     - `email_mover.py`: Executes IMAP commands to move emails.
-- **Configuration**: Uses `client_secret.json` for OAuth setup and stores refresh tokens in `token.json` (both within `gmail-oauth/` folder).
+- **Configuration**: Uses inline entry of Google OAuth credentials for setup and stores refresh tokens securely for future sessions.
 - **Data Flow**:
     1. User clicks "Login with Google", initiating OAuth flow via `auth.py`.
     2. Browser opens for Google authentication.
     3. Upon success, credentials (including access/refresh tokens) are obtained and stored.
     4. `email_client.py` uses credentials to establish IMAP connection.
-    5. Fetch emails into a Pandas DataFrame stored in session state.
-    6. Display DataFrame in `st.data_editor`.
-    7. User triggers categorization or manual edits, updating the DataFrame in session state.
-    8. User triggers email move, which reads the DataFrame state and interacts with the IMAP server via `email_mover.py` using the established client.
+    5. Emails are fetched and displayed in the app UI.
+    6. User triggers categorization or manual edits, updating the email list in the app.
+    7. User triggers email move, which interacts with the IMAP server via `email_mover.py` using the established client.
+
+## Project Structure
+
+- `smart-inbox-cleaner/`: Python backend and Streamlit UI
+- `desktop/`: Electron desktop wrapper (Node.js)
+- `gmail-oauth/`: Google OAuth credentials and token storage
 
 ## Setup the application
 
-1.  **Clone the repository** (if you haven't already):
+### 1. Clone the repository
+```bash
+git clone <repository_url>
+cd <repository_directory>
+```
+
+### 2. Set up the Python backend
+```bash
+cd smart-inbox-cleaner
+python3 -m venv venv
+source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+pip install -r requirements.txt
+```
+
+### 3. Set up Ollama (Required for LLM Categorization)
+*   Install [Ollama](https://ollama.com/) on your system if you haven't already.
+*   Ensure the Ollama application/server is running.
+*   Pull the models you want to use. The default is `llama3`. You might also want `deepseek-coder` or others.
     ```bash
-    git clone <repository_url>
-    cd <repository_directory>
-    cd smart-inbox-cleaner
+    ollama pull llama3
+    ollama pull deepseek-coder 
+    # etc.
     ```
 
-2.  **Create a virtual environment** (recommended):
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-    ```
+### 4. Set up Google Cloud Project & Credentials
+*   Go to the [Google Cloud Console](https://console.cloud.google.com/).
+*   Create a new project (or select an existing one).
+*   Enable the **Gmail API** for your project.
+*   Go to "Credentials" -> "Create Credentials" -> "OAuth client ID".
+*   Select **"Desktop app"** as the Application type.
+*   Give it a name (e.g., "Smart Inbox Cleaner Local").
+*   Click "Create".
+*   Copy your client ID and client secret. You will enter these directly into the app when prompted.
 
-3.  **Install dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+### 6. Verify .gitignore
+*   Ensure your .gitignore file (at the root) includes entries to ignore the token file:
+  ```gitignore
+  # ... other entries
+  gmail-oauth/token.json
+  # ... other entries
+  ```
+*   This prevents accidentally committing sensitive files.
 
-4.  **Setup Ollama (Required for LLM Categorization)**:
-    *   Install [Ollama](https://ollama.com/) on your system if you haven't already.
-    *   Ensure the Ollama application/server is running.
-    *   Pull the models you want to use. The default is `llama3`. You might also want `deepseek-coder` or others.
-        ```bash
-        ollama pull llama3
-        ollama pull deepseek-coder 
-        # etc.
-        ```
+### 7. (Optional) Set up the Electron Desktop App
+If you want to use the app as a native desktop application:
 
-5.  **Set up Google Cloud Project & Credentials**:
-    *   Go to the [Google Cloud Console](https://console.cloud.google.com/).
-    *   Create a new project (or select an existing one).
-    *   Enable the **Gmail API** for your project.
-    *   Go to "Credentials" -> "Create Credentials" -> "OAuth client ID".
-    *   Select **"Desktop app"** as the Application type.
-    *   Give it a name (e.g., "Smart Inbox Cleaner Local").
-    *   Click "Create".
-    *   Download the JSON file containing your client ID and client secret. Rename this file to `client_secret.json`.
+```bash
+cd ../desktop
+npm install
+```
 
-6.  **Place Credentials File**:
-    *   Create a folder named `gmail-oauth` in the root directory of the cloned repository (i.e., at the same level as the `smart-inbox-cleaner` folder).
-    *   Place the downloaded `client_secret.json` file inside this `gmail-oauth` folder.
-    *   The final path should be `<repository_root>/gmail-oauth/client_secret.json`.
+---
 
-7.  **Verify `.gitignore`**:
-    *   Ensure your `.gitignore` file (at the root) includes entries to ignore the credentials and token files:
-      ```gitignore
-      # ... other entries
-      gmail-oauth/client_secret.json
-      gmail-oauth/token.json
-      # ... other entries
-      ```
-    *   This prevents accidentally committing sensitive files.
-    
 ## Run the application
 
-1.  Make sure your virtual environment is activated (`source venv/bin/activate`).
-2.  Navigate into the application directory:
-    ```bash
-    cd smart-inbox-cleaner
-    ```
-3.  **(If using LLM Categorization) Ensure Ollama is running.**
-4.  Run the Streamlit app:
-    ```bash
-    streamlit run main.py
-    ```
-5.  The application should open in your default web browser, presenting a "Login with Google" button.
-6.  Click the button. Your browser should open a Google login page.
-7.  Choose your account and grant the requested permission (to view and manage your email, view profile info).
-8.  After successful authentication, the browser tab may show a success message, and the Streamlit app should proceed to load your emails.
-9.  Use the sidebar options to choose your preferred categorization method (LLM or Rule-Based) and select an Ollama model if using LLM.
-10. Click "Run Categorization".
-11. A `token.json` file will be created in the `gmail-oauth` folder to store your refresh token for future sessions.
+### Option 1: Run as a Web App (Streamlit)
 
-## Things to improve
+1. Activate your Python virtual environment:
+   ```bash
+   cd smart-inbox-cleaner
+   source venv/bin/activate
+   ```
+2. (If using LLM Categorization) Ensure Ollama is running.
+3. Run the Streamlit app:
+   ```bash
+   streamlit run main.py
+   ```
+4. The app will open in your browser.
 
-- **LLM Prompt Engineering**: Refine the prompt in `llm_categorizer.py` for better accuracy and handling of edge cases.
-- **LLM Body Analysis**: Fetch email body snippets (requires additional scope like `gmail.readonly`) to provide more context to the LLM.
-- **LLM Error Handling**: Improve parsing of LLM responses and handling of Ollama errors.
-- **Performance**: Parallelize LLM calls in `llm_categorizer.py` for faster processing of many emails.
-- Further UI/UX improvements (e.g., pagination, advanced filtering, custom themes).
-- Packaging: Bundle the application as a standalone desktop app (e.g., using PyInstaller or similar), or explore web/mobile deployment options.
-- Robust Error Handling: Improve handling of potential API/network errors during OAuth or IMAP operations.
+### Option 2: Run as a Desktop App (Electron)
 
-## License
-MIT
+1. Make sure you have completed the Python backend setup above (including virtualenv and requirements).
+2. In a new terminal, go to the `desktop` directory and install dependencies:
+   ```bash
+   cd desktop
+   npm install
+   ```
+3. Start the desktop app in development mode:
+   ```bash
+   npm run dev
+   ```
+   This will launch the Electron app, which will start the Python backend and open the UI in a native window.
+
+#### Notes:
+- The Electron app will attempt to find and launch your Streamlit backend. If you use a virtual environment, ensure the correct Python/Streamlit path is set in `desktop/main.js` (see troubleshooting below).
+- If you see an error like `spawn streamlit ENOENT`, follow the troubleshooting steps below to set the correct path to your Streamlit executable.
+
+---
+
+## Build and Distribute the Desktop App
+
+To package the app for distribution (macOS, Windows, Linux):
+
+```bash
+cd desktop
+npm run dist
+```
+
+- The distributable files will be created in the `desktop/dist/` folder.
+- For macOS, you will get a `.dmg` and `.zip` file. For Windows, an `.exe` installer and portable `.exe`. For Linux, `.AppImage` and `.deb`.
+
+### Distributing on macOS
+
+- For personal/development use: Use the generated DMG or ZIP file as is. Users may need to right-click and select "Open" to bypass Gatekeeper warnings.
+- For production: You will need an Apple Developer account to sign and notarize the app. See Apple documentation for details.
+
+---
+
+## How the Desktop App Works
+
+- The Electron application launches a local Streamlit server (the Smart Inbox Cleaner Python app).
+- It opens a browser window pointing to the Streamlit interface.
+- It handles communication between the UI and Python backend.
+- It packages everything together in a distributable application.
+
+---
+
+## Note on Icons
+
+- The current icon is generated using the `generate-icon.js` script in the `desktop` folder.
+- For production, consider creating a proper `.icns` file (macOS) or `.ico` file (Windows) with multiple resolutions.
+
+---
+
+## Streamlit Path Configuration & Troubleshooting (Desktop App)
+
+The packaged Smart Inbox Cleaner desktop app requires the Streamlit executable to be available on your system. If you see an error like:
+
+    Error: spawn streamlit ENOENT
+
+it means the app cannot find Streamlit in your system PATH.
+
+### How to Fix
+
+1. **Find the full path to your Streamlit executable:**
+   Open your terminal and run:
+   ```bash
+   which streamlit
+   ```
+   Example output:
+   ```
+   /Library/Frameworks/Python.framework/Versions/3.12/bin/streamlit
+   ```
+2. **Edit `main.js` in the desktop app:**
+   In the `startPythonBackend` function, update the path checks so your path is first:
+   ```js
+   let command = '/Library/Frameworks/Python.framework/Versions/3.12/bin/streamlit'; // <-- your path
+   if (!fs.existsSync(command)) {
+     command = '/usr/local/bin/streamlit';
+   }
+   if (!fs.existsSync(command)) {
+     command = '/opt/homebrew/bin/streamlit';
+   }
+   if (!fs.existsSync(command)) {
+     command = 'streamlit';
+   }
+   ```
+3. **Rebuild the app:**
+   After editing, rebuild the Electron app so the new path is used.
+
+#### Additional Troubleshooting
+- If you still get the ENOENT error, double-check the path and make sure Streamlit is installed and executable.
+- You can also use the full path to your Python executable and run Streamlit as a module:
+  ```js
+  let pythonBin = '/usr/local/bin/python3';
+  let command = pythonBin;
+  let args = ['-m', 'streamlit', 'run', 'main.py', ...];
+  ```
+- If you use a virtual environment, make sure the app points to the correct Python/Streamlit inside that environment.
+
+If you have any issues, please check the logs and ensure the correct path is set in `main.js`.

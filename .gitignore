@@ -8,8 +8,9 @@ __pycache__/
 
 # Env
 .env
-gmail-oauth/client_secret.json
-gmail-oauth/token.json
+#for day 3 branch
+#gmail-oauth/client_secret.json 
+#gmail-oauth/token.json
 
 # Logs
 logs/

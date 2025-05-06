@@ -13,22 +13,6 @@ from googleapiclient.errors import HttpError
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# --- Constants ---
-def get_app_data_dir() -> str:
-    """Get the appropriate application data directory for the current platform."""
-    system = platform.system()
-    if system == 'Darwin':  # macOS
-        return os.path.expanduser('~/Library/Application Support/Smart Inbox Cleaner')
-    elif system == 'Windows':
-        return os.path.join(os.environ.get('APPDATA', ''), 'Smart Inbox Cleaner')
-    else:  # Linux and others
-        return os.path.expanduser('~/.config/smart-inbox-cleaner')
-
-# Set up paths for OAuth credentials
-APP_DATA_DIR = get_app_data_dir()
-GMAIL_OAUTH_DIR = os.path.join(APP_DATA_DIR, 'gmail-oauth')
-TOKEN_PATH = os.path.join(GMAIL_OAUTH_DIR, 'token.json')
-
 # OAuth 2.0 client configuration
 CLIENT_CONFIG = {
     "installed": {
