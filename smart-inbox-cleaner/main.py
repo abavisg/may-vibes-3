@@ -743,53 +743,58 @@ else:
             
             # Confirm button (styled like in design)
             with button_cols[0]:
-                # Only enable if we have emails to move
-                confirm_disabled = True
-                if not st.session_state.df.empty:
-                    category_counts = st.session_state.df['category'].value_counts()
-                    relevant_present = any(cat in category_counts for cat in MOVE_CATEGORIES if category_counts.get(cat, 0) > 0)
-                    if relevant_present:
-                        confirm_disabled = False
+                # Only enable after categorization has run
+                confirm_disabled = not st.session_state.categorization_run
                         
-                if st.button("Confirm", key="confirm_move_btn", type="primary", disabled=confirm_disabled):
+                if st.button("Confirm & Move", key="confirm_move_btn", type="primary", disabled=confirm_disabled):
                     current_counts = st.session_state.df['category'].value_counts()
                     st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
                     if st.session_state.move_counts:
-                        if not st.session_state.imap_client:
-                            st.error("IMAP client not available. Cannot move emails.")
-                        else:
-                            with st.spinner("Moving emails..."):
-                                relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy() # Use constant
-                                if not relevant_df.empty:
-                                    uids_to_move = relevant_df['uid'].tolist()
-                                    category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
-                                    # Pass the IMAP client from session state
-                                    moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
-                                    if moved_uids is not None: # Check if move was attempted (even if 0 moved)
-                                        st.toast(f"Moved {len(moved_uids)} email(s).")
-                                        # Update state immediately
-                                        st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
-                                        st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
+                        # Create confirmation message
+                        confirmation_msg = "Are you sure you want to move: "
+                        move_details = []
+                        for cat, count in st.session_state.move_counts.items():
+                            if count > 0:
+                                move_details.append(f"{count} {'email' if count == 1 else 'emails'} to {cat}")
+                        confirmation_msg += ", ".join(move_details)
+                        
+                        # Show confirmation dialog
+                        if st.session_state.get('show_confirmation_dialog', False):
+                            st.markdown(f"<div style='padding: 15px; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px; border: 1px solid #eaeaea;'>{confirmation_msg}</div>", unsafe_allow_html=True)
+                            
+                            confirm_cols = st.columns([1, 1, 2])
+                            with confirm_cols[0]:
+                                if st.button("Yes, Move Emails", key="confirm_yes_btn", type="primary"):
+                                    if not st.session_state.imap_client:
+                                        st.error("IMAP client not available. Cannot move emails.")
                                     else:
-                                        st.error("Move operation failed. Check logs.")
-                                else:
-                                    st.toast("No relevant emails found to move.")
+                                        with st.spinner("Moving emails..."):
+                                            relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy()
+                                            if not relevant_df.empty:
+                                                uids_to_move = relevant_df['uid'].tolist()
+                                                category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
+                                                moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
+                                                if moved_uids is not None:
+                                                    st.toast(f"Moved {len(moved_uids)} email(s).")
+                                                    st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
+                                                    st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
+                                                else:
+                                                    st.error("Move operation failed. Check logs.")
+                                            else:
+                                                st.toast("No relevant emails found to move.")
+                                    st.session_state.show_confirmation_dialog = False
+                                    st.rerun()
+                            with confirm_cols[1]:
+                                if st.button("Cancel", key="confirm_no_btn", type="secondary"):
+                                    st.session_state.show_confirmation_dialog = False
+                                    st.rerun()
+                        else:
+                            # Show the confirmation dialog
+                            st.session_state.show_confirmation_dialog = True
                             st.rerun()
                     else:
                         st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
                 
-            # Cancel button
-            with button_cols[1]:
-                if st.button("Cancel", key="cancel_move_btn", type="secondary"):
-                    # Reset categorization state to initial state
-                    st.session_state.categorization_run = False
-                    
-                    # Reset all emails to uncategorized state
-                    if not st.session_state.df.empty:
-                        st.session_state.df['category'] = CAT_UNCATEGORISED
-                    
-                    st.rerun()
-            
             # Next Batch button
             with button_cols[2]:
                 if st.button("Next Batch", key="next_batch_btn", type="secondary"):
