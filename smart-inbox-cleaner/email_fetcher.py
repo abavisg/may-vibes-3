@@ -11,6 +11,15 @@ def decode_header_text(text):
         return ""
     
     try:
+        # Convert bytes to string if needed before checking patterns
+        if isinstance(text, bytes):
+            try:
+                # Try UTF-8 first as it's most common
+                text = text.decode('utf-8', errors='replace')
+            except:
+                # Fallback to general decoding
+                text = str(text)
+                
         decoded_parts = email.header.decode_header(text)
         result = ""
         for part, encoding in decoded_parts:
