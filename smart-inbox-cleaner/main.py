@@ -39,6 +39,150 @@ from html_generators import (
 # --- Setup Logging ---
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') 
 
+# --- Modal Factory Pattern ---
+class ModalFactory:
+    """Factory class for creating and handling different types of confirmation modals"""
+    
+    @staticmethod
+    def create_confirmation_message(confirmation_type, **kwargs):
+        """Create a confirmation message based on the confirmation type and additional data"""
+        if confirmation_type == "move":
+            move_counts = kwargs.get('move_counts', {})
+            confirmation_msg = "Are you sure you want to move: <br>"
+            move_details = []
+            
+            for cat, count in move_counts.items():
+                if count > 0:
+                    # Add category-specific styling with colors matching the UI
+                    if cat == "Action":
+                        color = "#ff4c4c"
+                    elif cat == "Read":
+                        color = "#4c7bff"
+                    elif cat == "Information":
+                        color = "#4cd97b"
+                    elif cat == "Events":
+                        color = "#ff9e4c"
+                    else:
+                        color = "#e0e0e0"
+                    
+                    styled_cat = f'<span style="color: {color}; font-weight: 500;">{cat}</span>'
+                    move_details.append(f"{count} {'email' if count == 1 else 'emails'} to {styled_cat}")
+            
+            confirmation_msg += "<br>".join(move_details)
+            return confirmation_msg
+            
+        elif confirmation_type == "archive":
+            info_count = kwargs.get('info_count', 0)
+            confirmation_msg = "Are you sure you want to archive: <br>"
+            # Style for Information category
+            color = "#4cd97b"  # Green for Information
+            styled_cat = f'<span style="color: {color}; font-weight: 500;">@Information</span>'
+            confirmation_msg += f"{info_count} {'email' if info_count == 1 else 'emails'} with {styled_cat}"
+            return confirmation_msg
+            
+        else:
+            # Default message
+            return "Are you sure you want to proceed?"
+    
+    @staticmethod
+    def show_modal_content(modal, confirmation_type, imap_client, df, emails):
+        """Display the appropriate modal content based on confirmation type"""
+        with modal.container():
+            # Get the confirmation message from session state
+            confirmation_msg = st.session_state.get('confirmation_message', "Are you sure you want to proceed?")
+            
+            # Display the confirmation message with HTML formatting
+            st.markdown(
+                f'<div style="font-size: 16px; margin-bottom: 20px; line-height: 1.5;">{confirmation_msg}</div>', 
+                unsafe_allow_html=True
+            )
+            
+            # Create columns for the confirmation buttons
+            confirm_cols = st.columns([1, 1])
+            
+            # Different actions based on confirmation type
+            if confirmation_type == "move":
+                # Move emails confirmation
+                with confirm_cols[0]:
+                    if st.button("Yes, Move Emails", key="modal_confirm_move_btn", 
+                               use_container_width=True,
+                               type="primary", 
+                               help="Move the emails to their category folders"):
+                        ModalFactory.handle_move_confirmation(imap_client, df, emails)
+                        # Close the modal and rerun to refresh the UI
+                        modal.close()
+                        st.rerun()
+            
+            elif confirmation_type == "archive":
+                # Archive Information emails confirmation
+                with confirm_cols[0]:
+                    if st.button("Yes, Archive", key="modal_confirm_archive_btn", 
+                               use_container_width=True,
+                               type="primary", 
+                               help="Archive all Information emails"):
+                        ModalFactory.handle_archive_confirmation(imap_client, df, emails)
+                        # Close the modal and rerun to refresh the UI
+                        modal.close()
+                        st.rerun()
+            
+            # Cancel button (same for all confirmation types)
+            with confirm_cols[1]:
+                if st.button("Cancel", key="modal_confirm_cancel_btn", type="secondary", use_container_width=True):
+                    # Close the modal and rerun to refresh the UI
+                    modal.close()
+                    st.rerun()
+    
+    @staticmethod
+    def handle_move_confirmation(imap_client, df, emails):
+        """Handle the confirmation to move emails"""
+        if not imap_client:
+            st.error("IMAP client not available. Cannot move emails.")
+            return
+            
+        with st.spinner("Moving emails..."):
+            relevant_df = df[df['category'].isin(MOVE_CATEGORIES)].copy()
+            if not relevant_df.empty:
+                uids_to_move = relevant_df['uid'].tolist()
+                category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
+                moved_uids = move_emails(imap_client, uids_to_move, category_map)
+                if moved_uids is not None:
+                    st.toast(f"Moved {len(moved_uids)} email(s).")
+                    st.session_state.df = df[~df['uid'].isin(moved_uids)]
+                    st.session_state.emails = [email for email in emails if email['uid'] not in moved_uids]
+                else:
+                    st.error("Move operation failed. Check logs.")
+            else:
+                st.toast("No relevant emails found to move.")
+    
+    @staticmethod
+    def handle_archive_confirmation(imap_client, df, emails):
+        """Handle the confirmation to archive Information emails"""
+        if not imap_client:
+            st.error("IMAP client not available. Cannot move emails.")
+            return
+            
+        with st.spinner("Archiving Information emails..."):
+            # Filter to Information category only
+            info_df = df[df['category'] == CAT_INFO].copy()
+            
+            if not info_df.empty:
+                uids_to_move = info_df['uid'].tolist()
+                # Create a map where all are Information category
+                category_map = {uid: CAT_INFO for uid in uids_to_move}
+                
+                # Use the existing move_emails function
+                moved_uids = move_emails(imap_client, uids_to_move, category_map)
+                
+                if moved_uids is not None:
+                    st.success(f"Archived {len(moved_uids)} Information email(s) successfully!")
+                    # Remove moved emails from dataframe and email list
+                    st.session_state.df = df[~df['uid'].isin(moved_uids)]
+                    st.session_state.emails = [email for email in emails if email['uid'] not in moved_uids]
+                else:
+                    st.error("Archive operation failed. Check logs.")
+            else:
+                st.info("No Information emails found to archive.")
+
 # --- Page Configuration ---
 st.set_page_config(
     page_title="Smart Inbox Cleaner",
@@ -526,102 +670,135 @@ else:
                     hide_close_button=True
                 )
             
-            # Create columns for the main action buttons
-            button_cols = st.columns([1, 1, 1])
+            # Update modal title based on confirmation type
+            def update_modal_title(modal, title):
+                """Update the title of the modal"""
+                # Access the internal title of the modal
+                modal._title = title
             
-            # Confirm button (styled like in design)
+            # Initialize confirmation type state if not exists
+            if 'confirmation_type' not in st.session_state:
+                st.session_state.confirmation_type = None
+            
+            # Add custom CSS to reduce button spacing
+            st.markdown("""
+            <style>
+            .button-row {
+                display: flex;
+                align-items: center;
+                margin-bottom: 16px;
+            }
+            .button-row > div {
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .button-row button {
+                margin: 0 !important;
+            }
+            .confirm-button {
+                padding-right: 4px !important;
+            }
+            .archive-button {
+                padding-left: 4px !important;
+                padding-right: 10px !important;
+            }
+            .next-button {
+                padding-left: 10px !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Open the button row container
+            st.markdown('<div class="button-row">', unsafe_allow_html=True)
+            
+            # Create three-column layout with custom widths
+            button_cols = st.columns([1.1, 1.8, 1.1])
+            
+            # Confirm button in first column
             with button_cols[0]:
+                st.markdown('<div class="confirm-button">', unsafe_allow_html=True)
                 # Only enable after categorization has run
                 confirm_disabled = not st.session_state.categorization_run
                         
-                if st.button("Confirm & Move", key="confirm_move_btn", type="primary", disabled=confirm_disabled):
+                if st.button("Confirm & Move", key="confirm_move_btn", type="primary", disabled=confirm_disabled, use_container_width=True):
                     # Calculate email counts by category
                     current_counts = st.session_state.df['category'].value_counts()
                     st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
                     
                     if st.session_state.move_counts:
                         # Create confirmation message with better formatting and styling
-                        confirmation_msg = "Are you sure you want to move: <br>"
-                        move_details = []
-                        for cat, count in st.session_state.move_counts.items():
-                            if count > 0:
-                                # Add category-specific styling with colors matching the UI
-                                if cat == "Action":
-                                    color = "#ff4c4c"
-                                elif cat == "Read":
-                                    color = "#4c7bff"
-                                elif cat == "Information":
-                                    color = "#4cd97b"
-                                elif cat == "Events":
-                                    color = "#ff9e4c"
-                                else:
-                                    color = "#e0e0e0"
-                                
-                                styled_cat = f'<span style="color: {color}; font-weight: 500;">{cat}</span>'
-                                move_details.append(f"{count} {'email' if count == 1 else 'emails'} to {styled_cat}")
-                        
-                        confirmation_msg += "<br>".join(move_details)
+                        confirmation_msg = ModalFactory.create_confirmation_message(
+                            "move",
+                            move_counts=st.session_state.move_counts
+                        )
                         
                         # Store for use in modal
                         st.session_state.confirmation_message = confirmation_msg
+                        st.session_state.confirmation_type = "move"
+                        
+                        # Set the modal title
+                        update_modal_title(st.session_state.confirm_modal, "Moving emails confirmation")
                         
                         # Open the modal
                         st.session_state.confirm_modal.open()
+                        st.rerun()
                     else:
                         st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
+                st.markdown('</div>', unsafe_allow_html=True)
             
-            # Next Batch button - always show this
+            # Archive Information Emails button in second column
+            with button_cols[1]:
+                st.markdown('<div class="archive-button">', unsafe_allow_html=True)
+                # Only enable after categorization has run
+                archive_disabled = not st.session_state.categorization_run
+                
+                if st.button("Archive Information Emails", key="archive_info_btn", type="secondary", disabled=archive_disabled, use_container_width=True):
+                    # Count Information emails
+                    info_count = len(st.session_state.df[st.session_state.df['category'] == CAT_INFO])
+                    
+                    if info_count > 0:
+                        # Create confirmation message with better formatting and styling
+                        confirmation_msg = ModalFactory.create_confirmation_message(
+                            "archive",
+                            info_count=info_count
+                        )
+                        
+                        # Store for use in modal
+                        st.session_state.confirmation_message = confirmation_msg
+                        st.session_state.confirmation_type = "archive"
+                        
+                        # Set the modal title
+                        update_modal_title(st.session_state.confirm_modal, "Archive emails confirmation")
+                        
+                        # Open the modal
+                        st.session_state.confirm_modal.open()
+                        st.rerun()
+                    else:
+                        st.toast("No Information emails to archive.")
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Next Batch button in third column
             with button_cols[2]:
-                if st.button("Next Batch", key="next_batch_btn", type="secondary"):
+                st.markdown('<div class="next-button">', unsafe_allow_html=True)
+                if st.button("Next Batch", key="next_batch_btn", type="secondary", use_container_width=True):
                     # Implementation could be added later
                     st.toast("Next batch functionality would be implemented here")
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+            # Close the button row container
+            st.markdown('</div>', unsafe_allow_html=True)
             
             # Modal content setup
             if st.session_state.confirm_modal.is_open():
-                with st.session_state.confirm_modal.container():
-                    # Get the confirmation message from session state
-                    confirmation_msg = st.session_state.get('confirmation_message', "Are you sure you want to move these emails?")
-                    
-                    # Display the confirmation message with HTML formatting
-                    st.markdown(
-                        f'<div style="font-size: 16px; margin-bottom: 20px; line-height: 1.5;">{confirmation_msg}</div>', 
-                        unsafe_allow_html=True
-                    )
-                    
-                    # Create columns for the confirmation buttons
-                    confirm_cols = st.columns([1, 1])
-                    with confirm_cols[0]:
-                        if st.button("Yes, Move Emails", key="modal_confirm_yes_btn", 
-                                   use_container_width=True,
-                                   type="primary", 
-                                   help="Move the emails to their category folders"):
-                            if not st.session_state.imap_client:
-                                st.error("IMAP client not available. Cannot move emails.")
-                            else:
-                                with st.spinner("Moving emails..."):
-                                    relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy()
-                                    if not relevant_df.empty:
-                                        uids_to_move = relevant_df['uid'].tolist()
-                                        category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
-                                        moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
-                                        if moved_uids is not None:
-                                            st.toast(f"Moved {len(moved_uids)} email(s).")
-                                            st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
-                                            st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
-                                        else:
-                                            st.error("Move operation failed. Check logs.")
-                                    else:
-                                        st.toast("No relevant emails found to move.")
-                        
-                            # Close the modal and rerun to refresh the UI
-                            st.session_state.confirm_modal.close()
-                            st.rerun()
-                    
-                    with confirm_cols[1]:
-                        if st.button("Cancel", key="modal_confirm_no_btn", type="secondary", use_container_width=True):
-                            # Close the modal and rerun to refresh the UI
-                            st.session_state.confirm_modal.close()
-                            st.rerun()
+                # Use the factory to handle modal content
+                confirmation_type = st.session_state.get('confirmation_type')
+                ModalFactory.show_modal_content(
+                    st.session_state.confirm_modal,
+                    confirmation_type,
+                    st.session_state.imap_client,
+                    st.session_state.df,
+                    st.session_state.emails
+                )
 
     elif st.session_state.logged_in:
         # Show only if logged in but no emails were found/loaded
