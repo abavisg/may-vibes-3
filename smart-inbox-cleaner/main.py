@@ -29,7 +29,7 @@ from constants import (
 from categorizer import categorize_emails as categorize_emails_rules
 from helper_functions import decode_subject, get_ollama_models
 # Import the consolidated styles
-from styles import get_all_styles, get_debug_styles
+from styles import get_all_styles
 from html_generators import (
     generate_progress_html, 
     generate_complete_html, 
@@ -194,9 +194,7 @@ st.set_page_config(
 # Apply the consolidated styles from styles.py
 st.markdown(get_all_styles(), unsafe_allow_html=True)
 
-# Add the debug CSS separately when enabled
-if st.session_state.get('debug_layout', False):
-    st.markdown(get_debug_styles(), unsafe_allow_html=True)
+# Removed debug CSS application
 
 # --- Initialize Session State ---
 if 'logged_in' not in st.session_state:
@@ -367,21 +365,6 @@ else:
             "Debug Mode", 
             value=st.session_state.debug_mode,
             help="Show additional debugging information"
-        )
-        
-        # Add layout debug toggle with a callback to force rerun
-        if 'debug_layout' not in st.session_state:
-            st.session_state.debug_layout = False
-        
-        # Helper function to toggle debug layout and force rerun
-        def toggle_debug_layout():
-            st.session_state.debug_layout = not st.session_state.debug_layout
-            st.rerun()
-            
-        st.button(
-            f"{'Disable' if st.session_state.debug_layout else 'Enable'} Debug Layout", 
-            on_click=toggle_debug_layout,
-            help="Show colored backgrounds for layout debugging"
         )
         
         if st.session_state.debug_mode:

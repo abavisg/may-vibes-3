@@ -1,7 +1,0 @@
-streamlit==1.35.0
-imapclient==3.0.0
-python-dotenv==1.0.1
-pandas==2.2.2
-google-auth-oauthlib>=0.5.1
-google-api-python-client>=2.84.0
-ollama>=0.2.0
