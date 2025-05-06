@@ -23,11 +23,11 @@
     "canvas": "^3.1.0",
     "cross-env": "^7.0.3",
     "electron": "^30.0.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "electron-squirrel-startup": "^1.0.0"
   },
   "dependencies": {
     "electron-log": "^5.4.0",
-    "electron-squirrel-startup": "^1.0.1",
     "electron-updater": "^6.6.2"
   },
   "build": {
@@ -38,8 +38,6 @@
     },
     "files": [
       "**/*",
-      "../smart-inbox-cleaner/**/*",
-      "../gmail-oauth/**/*",
       "node_modules/**/*",
       "!node_modules/**/node_modules"
     ],

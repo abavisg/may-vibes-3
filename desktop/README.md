@@ -72,4 +72,59 @@ The Electron application:
 
 ## Note on Icons
 
-The current icon is generated using the `generate-icon.js` script. For production use, consider creating a proper `.icns` file (macOS) or `.ico` file (Windows) with multiple resolutions. 
+The current icon is generated using the `generate-icon.js` script. For production use, consider creating a proper `.icns` file (macOS) or `.ico` file (Windows) with multiple resolutions.
+
+## Streamlit Path Configuration (IMPORTANT)
+
+The packaged Smart Inbox Cleaner desktop app requires the Streamlit executable to be available on your system. If you see an error like:
+
+    Error: spawn streamlit ENOENT
+
+it means the app cannot find Streamlit in your system PATH.
+
+### How to Fix
+
+1. **Find the full path to your Streamlit executable:**
+   Open your terminal and run:
+   
+   ```bash
+   which streamlit
+   ```
+   
+   Example output:
+   
+   ```
+   /Library/Frameworks/Python.framework/Versions/3.12/bin/streamlit
+   ```
+
+2. **Edit `main.js` in the desktop app:**
+   In the `startPythonBackend` function, update the path checks so your path is first:
+   
+   ```js
+   let command = '/Library/Frameworks/Python.framework/Versions/3.12/bin/streamlit'; // <-- your path
+   if (!fs.existsSync(command)) {
+     command = '/usr/local/bin/streamlit';
+   }
+   if (!fs.existsSync(command)) {
+     command = '/opt/homebrew/bin/streamlit';
+   }
+   if (!fs.existsSync(command)) {
+     command = 'streamlit';
+   }
+   ```
+
+3. **Rebuild the app:**
+   After editing, rebuild the Electron app so the new path is used.
+
+### Troubleshooting
+- If you still get the ENOENT error, double-check the path and make sure Streamlit is installed and executable.
+- You can also use the full path to your Python executable and run Streamlit as a module:
+  ```js
+  let pythonBin = '/usr/local/bin/python3';
+  let command = pythonBin;
+  let args = ['-m', 'streamlit', 'run', 'main.py', ...];
+  ```
+- If you use a virtual environment, make sure the app points to the correct Python/Streamlit inside that environment.
+
+---
+If you have any issues, please check the logs and ensure the correct path is set in `main.js`. 

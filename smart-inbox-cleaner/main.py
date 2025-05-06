@@ -12,6 +12,7 @@ from email_fetcher import fetch_inbox_emails
 from llm_categorizer import categorize_emails_llm, DEFAULT_MODEL
 from email_modal import EmailModal
 from status_component import setup_status_component, is_electron
+from auth_status import show_auth_status, show_auth_error
 
 # Import from new utility modules
 from constants import (
