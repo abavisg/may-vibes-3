@@ -37,7 +37,7 @@ CLIENT_CONFIG = {
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_secret": "ADD_CLIENT_SECRET_HERE",  # Need a more secure solution as this identifies the google cloud console app
+        #"client_secret": "ADD_CLIENT_SECRET_HERE",  # Need a more secure solution as this identifies the google cloud console app
         "redirect_uris": ["http://localhost"]
     }
 }
