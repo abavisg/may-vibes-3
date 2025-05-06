@@ -23,3 +23,24 @@ logs/
 
 # MacOS
 .DS_Store
+
+# Electron
+desktop/node_modules/
+desktop/dist/
+desktop/build/
+desktop/.electron-builder.cache/
+desktop/out/
+desktop/coverage/
+desktop/npm-debug.log*
+desktop/yarn-debug.log*
+desktop/yarn-error.log*
+desktop/package-lock.json
+
+# IDEs and editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

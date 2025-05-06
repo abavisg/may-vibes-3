@@ -1,0 +1,18 @@
+This is a placeholder for the icon.icns file. 
+
+For distribution, you'll need to replace this with a proper .icns file.
+You can create an .icns file from a PNG image using a converter tool like:
+- iconutil (macOS command-line tool)
+- https://cloudconvert.com/png-to-icns (Online converter)
+- https://img2icnsapp.com/ (Mac App)
+
+Basic steps to create an icon with iconutil:
+1. Create a folder named YourIcon.iconset
+2. Add PNG images with specific sizes:
+   - icon_16x16.png
+   - icon_32x32.png
+   - icon_64x64.png
+   - icon_128x128.png
+   - icon_256x256.png
+   - icon_512x512.png
+3. Run: iconutil -c icns YourIcon.iconset 

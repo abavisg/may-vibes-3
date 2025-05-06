@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'">
+  <title>Smart Inbox Cleaner</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Smart Inbox Cleaner</h1>
+      <p>Organize your Gmail inbox efficiently with AI</p>
+    </header>
+
+    <main id="app">
+      <div class="status-area">
+        <div id="status">Initializing application...</div>
+        <button id="restart-btn">Restart Python Backend</button>
+      </div>
+
+      <div class="console-output">
+        <h3>Application Log</h3>
+        <pre id="console"></pre>
+      </div>
+    </main>
+
+    <footer>
+      <p>© 2024 Smart Inbox Cleaner</p>
+    </footer>
+  </div>
+  
+  <script src="renderer.js"></script>
+</body>
+</html> 
