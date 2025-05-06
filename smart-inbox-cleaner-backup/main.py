@@ -16,8 +16,6 @@ import pandas as pd
 import ollama # Import ollama to list models
 # Import the status component module
 from status_component import setup_status_component, is_electron
-import email.header  # For decoding email subjects
-import re  # For regex pattern matching
 
 # --- Setup Logging (Optional: Configure Streamlit's logger if needed) ---
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') 
@@ -429,25 +427,6 @@ div.stDataFrame div[data-testid="stDataFrameCell"] div[data-testid="column-Categ
     background-color: rgba(245, 245, 250, 0.8) !important;
 }
 
-/* Custom category row styling */
-.stDataFrame tbody tr td:has(div:contains("Action")) {
-    background-color: rgba(255, 76, 76, 0.1) !important;
-}
-
-.stDataFrame tbody tr td:has(div:contains("Read")) {
-    background-color: rgba(76, 123, 255, 0.1) !important;
-}
-
-.stDataFrame tbody tr td:has(div:contains("Information")) {
-    background-color: rgba(76, 217, 123, 0.1) !important;
-}
-
-.stDataFrame tbody tr td:has(div:contains("Events")) {
-    background-color: rgba(255, 158, 76, 0.1) !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # Add the debug CSS separately when enabled
 if st.session_state.get('debug_layout', False):
     st.markdown("""
@@ -493,36 +472,6 @@ if st.session_state.get('debug_layout', False):
 # --- Constants ---
 CAT_METHOD_LLM = "LLM Categorization"
 CAT_METHOD_RULES = "Rule-Based Categorization"
-
-# --- Helper to decode email subjects ---
-def decode_subject(subject):
-    """Decode email subjects encoded with =?UTF-8?Q?...?= format."""
-    if not subject:
-        return ""
-        
-    try:
-        # Check if it's an encoded string that needs decoding
-        if isinstance(subject, str) and "=?UTF-8?" in subject:
-            # Use proper email.header module to decode
-            import email.header
-            decoded_parts = email.header.decode_header(subject)
-            result = ""
-            for part, encoding in decoded_parts:
-                if isinstance(part, bytes):
-                    result += part.decode(encoding or 'utf-8', errors='replace')
-                else:
-                    result += str(part)
-            return result
-        return subject  # Return as-is if not encoded or not a string
-    except Exception as e:
-        logging.warning(f"Error decoding subject '{subject}': {str(e)}")
-        # Return the original if decoding fails
-        if isinstance(subject, str):
-            return subject
-        elif isinstance(subject, bytes):
-            return subject.decode('utf-8', errors='replace')
-        else:
-            return str(subject)
 
 # --- Helper Function to Get Ollama Models (Moved Here) ---
 def get_ollama_models():
@@ -779,10 +728,6 @@ else:
                         temp_df['category'] = CAT_UNCATEGORISED # Use constant
                         temp_df['Select'] = False
                         temp_df['date'] = pd.to_datetime(temp_df['date']) # Ensure date is datetime type
-                        
-                        # Decode encoded email subjects - only if they contain encoding patterns
-                        temp_df['subject'] = temp_df['subject'].apply(lambda s: decode_subject(s) if isinstance(s, str) and "=?UTF-8?" in s else s)
-                        
                         temp_df = temp_df.sort_values(by='date', ascending=False)
                         # Define initial column order
                         st.session_state.df = temp_df[['Select', 'date', 'from', 'subject', 'category', 'uid']]
@@ -792,15 +737,6 @@ else:
                     st.error("IMAP client not available. Cannot fetch emails.")
             except Exception as e:
                 st.error(f"Error fetching emails: {e}")
-
-    # Update original email list to have decoded subjects
-    for email in st.session_state.emails:
-        if 'subject' in email and isinstance(email['subject'], str) and "=?UTF-8?" in email['subject']:
-            email['subject'] = decode_subject(email['subject'])
-
-    # Any time we update the dataframe, ensure subjects are decoded
-    if not st.session_state.df.empty and 'subject' in st.session_state.df.columns:
-        st.session_state.df['subject'] = st.session_state.df['subject'].apply(lambda s: decode_subject(s) if isinstance(s, str) and "=?UTF-8?" in s else s)
 
     # --- Processing Logic (Only runs when Process Inbox button is clicked) ---
     if st.session_state.categorization_running:
@@ -882,10 +818,10 @@ else:
             elif categorized_email_list:
                 logging.info(f"Categorization successful. Received {len(categorized_email_list)} emails back.")
                 
-                # Decode all subjects in the categorized list - only if they contain encoding patterns
-                for email in categorized_email_list:
-                    if 'subject' in email and isinstance(email['subject'], str) and "=?UTF-8?" in email['subject']:
-                        email['subject'] = decode_subject(email['subject'])
+                # Create a temporary DataFrame with the categorized emails
+                temp_df = pd.DataFrame(categorized_email_list)
+                temp_df['Select'] = False
+                temp_df['date'] = pd.to_datetime(temp_df['date'])
                 
                 # Create a mapping of UIDs to categories from the categorized results
                 categorized_uids = set()
@@ -906,7 +842,7 @@ else:
                                 if email['uid'] == uid and ('category' not in email or email['category'] is None):
                                     email['category'] = row['category']
                 
-                # Create DataFrame with the updated data
+                # Re-create DataFrame with the updated data
                 temp_df = pd.DataFrame(categorized_email_list)
                 temp_df['Select'] = False
                 temp_df['date'] = pd.to_datetime(temp_df['date'])
@@ -920,7 +856,6 @@ else:
                     # Fill any None/NaN values with Uncategorised
                     temp_df['category'].fillna(CAT_UNCATEGORISED, inplace=True)
                     
-                # Create the dataframe with selected columns
                 st.session_state.df = temp_df[['Select', 'date', 'from', 'subject', 'category', 'uid']]
                 
                 st.session_state.categorization_run = True
@@ -990,33 +925,6 @@ else:
         # Add the status HTML above the table
         st.markdown(status_html, unsafe_allow_html=True)
 
-        # Add a custom component for row styling
-        row_style_html = """
-        <style>
-        /* Create colored backgrounds for rows based on category text */
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Action") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Action") {
-            background-color: rgba(255, 76, 76, 0.08) !important;
-        }
-        
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Read") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Read") {
-            background-color: rgba(76, 123, 255, 0.08) !important;
-        }
-        
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Information") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Information") {
-            background-color: rgba(76, 217, 123, 0.08) !important;
-        }
-        
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Events") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Events") {
-            background-color: rgba(255, 158, 76, 0.08) !important;
-        }
-        </style>
-        """
-        st.markdown(row_style_html, unsafe_allow_html=True)
-
         # Create a loading overlay for the table when processing
         table_disabled = False
         if st.session_state.categorization_running:
@@ -1039,7 +947,7 @@ else:
             ),
             "date": st.column_config.DatetimeColumn(
                 "Date", 
-                format="DD/MM/YYYY HH:mm",
+                format="MM-DD-YY HH:mm",
                 width="small"
             ),
             "from": st.column_config.TextColumn(
@@ -1075,11 +983,6 @@ else:
         if not st.session_state.table_editable:
             disabled_columns.append("category") # Disable category editing during processing
         
-        # Before displaying the data editor, ensure subjects are decoded
-        if not display_df.empty and 'subject' in display_df.columns:
-            # Only decode if subject is a string and contains encoding pattern
-            display_df['subject'] = display_df['subject'].apply(lambda s: decode_subject(s) if isinstance(s, str) and "=?UTF-8?" in s else s)
-        
         edited_df = st.data_editor(
             display_df,
             use_container_width=True,
@@ -1097,10 +1000,6 @@ else:
         session_columns = ['Select', 'date', 'from', 'subject', 'category', 'uid']
         edited_columns = [col for col in session_columns if col in edited_df.columns]
         
-        # Ensure edited subjects are also decoded
-        if 'subject' in edited_df.columns:
-            edited_df['subject'] = edited_df['subject'].apply(lambda s: decode_subject(s) if isinstance(s, str) and "=?UTF-8?" in s else s)
-            
         # Check if changes were made to columns we care about
         if not st.session_state.df[edited_columns].equals(edited_df[edited_columns]):
             # Update the category in the session state dataframe
@@ -1110,10 +1009,6 @@ else:
             # Update the Select column if it exists
             if 'Select' in edited_df.columns:
                 st.session_state.df['Select'] = edited_df['Select']
-                
-            # Make sure subjects are properly decoded in the session state
-            if 'subject' in edited_df.columns:
-                st.session_state.df['subject'] = edited_df['subject']
             
             # Rerun to reflect changes immediately
             st.rerun()
@@ -1193,3 +1088,38 @@ else:
     elif st.session_state.logged_in:
         # Show only if logged in but no emails were found/loaded
         st.write("No emails to display.")
+
+# Add custom JavaScript to apply classes to rows based on category
+function applyCategoryRowStyles() {
+    const tableRows = document.querySelectorAll('.stDataFrame tbody tr');
+    tableRows.forEach(row => {
+        // Find the category cell in this row
+        const categoryCell = row.querySelector('[data-testid="stDataFrameCell"] [data-testid="column-category"] select');
+        if (categoryCell) {
+            const category = categoryCell.value;
+            if (category) {
+                // Remove any existing category classes
+                row.classList.remove('category-row-Action', 'category-row-Read', 'category-row-Information', 'category-row-Events');
+                // Add the appropriate class
+                row.classList.add(`category-row-${category}`);
+            }
+        }
+    });
+}
+
+// Run when page loads and periodically
+document.addEventListener('DOMContentLoaded', function() {
+    // Initial application
+    applyCategoryRowStyles();
+    
+    // Set up a mutation observer to watch for changes
+    const observer = new MutationObserver(function(mutations) {
+        applyCategoryRowStyles();
+    });
+    
+    // Start observing the document
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    // Also run periodically as a fallback
+    setInterval(applyCategoryRowStyles, 1000);
+});
