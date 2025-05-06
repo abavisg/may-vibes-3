@@ -1,29 +1,42 @@
 import streamlit as st
-import logging # Use logging
-import os  # Added back for env vars
+import logging
+import os
 import email
-from email import header as email_header
-# Removed os import
+import pandas as pd
+import ollama
+
+# Import from local modules
 from email_client import connect_oauth
 from email_mover import move_emails
 from email_fetcher import fetch_inbox_emails
-from categorizer import (
-    categorize_emails as categorize_emails_rules, # Rename for clarity
-    CAT_ACTION, CAT_READ, CAT_EVENTS, CAT_INFO, CAT_UNCATEGORISED, # Import constants
-    MOVE_CATEGORIES, RULE_CATEGORIES
-)
-# Import the new LLM categorizer function
 from llm_categorizer import categorize_emails_llm, DEFAULT_MODEL
-import pandas as pd
-import ollama # Import ollama to list models
-# Import the status component module
-from status_component import setup_status_component, is_electron
-import re  # For regex pattern matching
 from email_modal import EmailModal
+from status_component import setup_status_component, is_electron
 
-# --- Setup Logging (Optional: Configure Streamlit's logger if needed) ---
+# Import from new utility modules
+from constants import (
+    CAT_METHOD_LLM, 
+    CAT_METHOD_RULES,
+    CAT_ACTION, 
+    CAT_READ, 
+    CAT_EVENTS, 
+    CAT_INFO, 
+    CAT_UNCATEGORISED,
+    MOVE_CATEGORIES,
+    RULE_CATEGORIES
+)
+from categorizer import categorize_emails as categorize_emails_rules
+from helper_functions import decode_subject, get_ollama_models
+from styles import get_app_styles, get_debug_styles, get_row_style_html
+from html_generators import (
+    generate_status_html, 
+    generate_progress_html, 
+    generate_complete_html, 
+    generate_category_pill_js
+)
+
+# --- Setup Logging ---
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') 
-# Streamlit might configure logging, check behaviour if duplicating.
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -32,522 +45,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Custom CSS ---
-st.markdown("""
-<style>
-/* Global styling */
-html, body, [class*="st-"] {
-    font-size: 16px !important;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif !important;
-}
-
-/* Main app container */
-.main .block-container {
-    padding: 1rem 1rem 1rem 1rem !important;
-    max-width: 100% !important;
-}
-
-/* Card styling for the entire app */
-.main .block-container {
-    background-color: white;
-    border-radius: 12px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-}
-
-/* Category pills styling */
-.stDataFrame [data-testid="StyledDataFrameDataCell"] div:contains("Action") {
-    background-color: #ff4c4c !important;
-    color: white !important;
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-weight: 500;
-    display: inline-block;
-    text-align: center;
-    min-width: 80px;
-}
-
-/* Modal customization */
-div[data-modal-container] > div:first-child {
-    border-bottom: none !important;
-}
-
-/* Red confirmation button in modal */
-div[data-modal-container] div[data-testid="element-container"]:has(button[kind="primary"]) button {
-    background-color: #ff4c4c !important;
-    border-color: #ff4c4c !important;
-}
-
-.stDataFrame [data-testid="StyledDataFrameDataCell"] div:contains("Read") {
-    background-color: #4c7bff !important;
-    color: white !important;
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-weight: 500;
-    display: inline-block;
-    text-align: center;
-    min-width: 80px;
-}
-
-/* Add additional more specific selectors to target the categories */
-.stDataFrame th:contains("Category") ~ td div {
-    padding: 2px 10px !important;
-    border-radius: 12px !important;
-    font-weight: 500 !important;
-    display: inline-block !important;
-    text-align: center !important;
-}
-
-.stDataFrame select[aria-label="Category"] option[value="Action"] {
-    background-color: #ff4c4c !important;
-    color: white !important;
-}
-
-.stDataFrame select[aria-label="Category"] option[value="Read"] {
-    background-color: #4c7bff !important;
-    color: white !important;
-}
-
-.stDataFrame select[aria-label="Category"] option[value="Information"] {
-    background-color: #4cd97b !important;
-    color: white !important;
-}
-
-.stDataFrame select[aria-label="Category"] option[value="Events"] {
-    background-color: #ff9e4c !important;
-    color: white !important;
-}
-
-.stDataFrame select[aria-label="Category"] option[value="Uncategorised"] {
-    background-color: #e0e0e0 !important;
-    color: #555 !important;
-}
-
-/* Additional selector to ensure category pills are properly formatted */
-.stDataFrame [data-testid="stDataFrameCell"] select option {
-    padding: 4px !important;
-}
-
-/* Button styling */
-.stButton > button {
-    border-radius: 8px !important;
-    font-weight: 500 !important;
-    padding: 0.5rem 1.5rem !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08) !important;
-    margin-right: 10px !important;
-    margin-bottom: 10px !important;
-    border: none !important;
-}
-
-.stButton > button[kind="primary"] {
-    background-color: #4c7bff !important;
-}
-
-/* Sidebar styling */
-[data-testid="stSidebar"] {
-    background-color: white;
-    padding: 2rem 1rem;
-}
-
-[data-testid="stSidebar"] > div:first-child {
-    padding-top: 1.5rem;
-}
-
-[data-testid="stSidebar"] .block-container {
-    margin-top: 1rem;
-}
-
-/* Table styling */
-.stDataFrame {
-    width: 100%;
-}
-
-.stDataFrame [data-testid="StyledDataFrameDataCell"] {
-    font-size: 0.9rem !important;
-    padding: 0.5rem 0.75rem !important;
-}
-
-.stDataFrame [data-testid="StyledDataFrameRowHeader"] {
-    display: none;
-}
-
-.stDataFrame thead th {
-    background-color: #f8f9fa;
-    font-weight: 600 !important;
-    padding: 0.75rem !important;
-    text-transform: none !important;
-    border-bottom: 1px solid #eaeaea !important;
-}
-
-.stDataFrame tbody tr {
-    border-bottom: 1px solid #f0f0f0;
-}
-
-.stDataFrame tbody tr:hover {
-    background-color: #f9f9f9;
-}
-
-/* Processing overlay styling */
-.processing-overlay {
-    position: relative;
-    z-index: 1000;
-    background-color: rgba(245, 245, 250, 0.95);
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 15px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-/* Disabled table styling during processing */
-.disabled-table [data-testid="stDataFrame"] {
-    opacity: 0.8;
-    position: relative;
-    transition: all 0.3s ease;
-}
-
-.disabled-table [data-testid="stDataFrame"]::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(245, 245, 250, 0.4);
-    border-radius: 8px;
-    pointer-events: none;
-    z-index: 1;
-}
-
-/* Inbox status styling */
-.inbox-status {
-    text-align: left;
-    margin-bottom: 1rem;
-}
-
-/* Remove padding from header */
-header {
-    display: none;
-}
-
-/* Custom category formatter */
-.category-pill {
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-weight: 500;
-    display: inline-block;
-    text-align: center;
-    min-width: 80px;
-}
-.category-Action {
-    background-color: #ff4c4c !important;
-    color: white !important;
-}
-.category-Read {
-    background-color: #4c7bff !important;
-    color: white !important;
-}
-.category-Information {
-    background-color: #4cd97b !important;
-    color: white !important;
-}
-.category-Events {
-    background-color: #ff9e4c !important;
-    color: white !important;
-}
-.category-Uncategorised {
-    background-color: #e0e0e0 !important;
-    color: #555 !important;
-}
-
-/* Set color and appearance for select dropdown */
-.stDataFrame [data-testid="stDataFrameCell"] select {
-    border-radius: 12px !important;
-    padding: 2px 8px !important;
-}
-
-/* Category pills styling */
-[data-testid="stDataFrameCell"] [data-testid="column-Category"] select {
-    background-color: var(--category-color, #e0e0e0);
-    color: var(--category-text-color, #333);
-    border-radius: 12px;
-    padding: 2px 10px;
-    font-weight: 500;
-    text-align: center;
-    border: none;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    min-width: 120px;
-}
-
-/* Set colors for different category values */
-[data-testid="stDataFrameCell"] [data-testid="column-Category"] select option[value="Action"] {
-    background-color: #ff4c4c;
-    color: white;
-}
-
-[data-testid="stDataFrameCell"] [data-testid="column-Category"] select option[value="Read"] {
-    background-color: #4c7bff;
-    color: white;
-}
-
-[data-testid="stDataFrameCell"] [data-testid="column-Category"] select option[value="Information"] {
-    background-color: #4cd97b;
-    color: white;
-}
-
-[data-testid="stDataFrameCell"] [data-testid="column-Category"] select option[value="Events"] {
-    background-color: #ff9e4c;
-    color: white;
-}
-
-[data-testid="stDataFrameCell"] [data-testid="column-Category"] select option[value="Uncategorised"] {
-    background-color: #e0e0e0;
-    color: #555;
-}
-
-/* Category cells styling */
-.category-Action {
-    --category-color: #ff4c4c !important;
-    --category-text-color: white !important;
-}
-
-.category-Read {
-    --category-color: #4c7bff !important;
-    --category-text-color: white !important;
-}
-
-.category-Information {
-    --category-color: #4cd97b !important;
-    --category-text-color: white !important;
-}
-
-.category-Events {
-    --category-color: #ff9e4c !important;
-    --category-text-color: white !important;
-}
-
-.category-Uncategorised {
-    --category-color: #e0e0e0 !important;
-    --category-text-color: #555 !important;
-}
-
-/* Additional JavaScript to set class on cells based on their value */
-div.stDataFrame div[data-testid="stDataFrameCell"] div[data-testid="column-Category"] {
-    position: relative;
-}
-
-div.stDataFrame div[data-testid="stDataFrameCell"] div[data-testid="column-Category"]::after {
-    content: attr(data-value);
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: -1;
-    opacity: 0.15;
-}
-
-/* Add row coloring based on category */
-.stDataFrame tbody tr td div:has(select option[value="Action"]:checked) {
-    background-color: rgba(255, 76, 76, 0.12) !important; /* Light red */
-}
-
-.stDataFrame tbody tr td:has(div:has(select option[value="Action"]:checked)) {
-    background-color: rgba(255, 76, 76, 0.12) !important; /* Light red */
-}
-
-.stDataFrame tbody tr:has(td:has(div:has(select option[value="Action"]:checked))) {
-    background-color: rgba(255, 76, 76, 0.12) !important; /* Light red */
-}
-
-.stDataFrame tbody tr:has(td:has(div:has(select option[value="Read"]:checked))) {
-    background-color: rgba(76, 123, 255, 0.12) !important; /* Light blue */
-}
-
-.stDataFrame tbody tr:has(td:has(div:has(select option[value="Information"]:checked))) {
-    background-color: rgba(76, 217, 123, 0.12) !important; /* Light green */
-}
-
-.stDataFrame tbody tr:has(td:has(div:has(select option[value="Events"]:checked))) {
-    background-color: rgba(255, 158, 76, 0.12) !important; /* Light orange */
-}
-
-/* Alternative approach using cell content */
-.stDataFrame tr:has(td:contains("Action")) {
-    background-color: rgba(255, 76, 76, 0.12) !important; /* Light red */
-}
-
-.stDataFrame tr:has(td:contains("Read")) {
-    background-color: rgba(76, 123, 255, 0.12) !important; /* Light blue */
-}
-
-.stDataFrame tr:has(td:contains("Information")) {
-    background-color: rgba(76, 217, 123, 0.12) !important; /* Light green */
-}
-
-.stDataFrame tr:has(td:contains("Events")) {
-    background-color: rgba(255, 158, 76, 0.12) !important; /* Light orange */
-}
-
-/* Add hover effect to all rows with improved specificity */
-.stDataFrame tbody tr:hover {
-    background-color: rgba(245, 245, 250, 0.7) !important;
-}
-
-/* Add row background colors based on category */
-.category-row-Action {
-    background-color: rgba(255, 76, 76, 0.15) !important; /* Light red */
-}
-
-.category-row-Read {
-    background-color: rgba(76, 123, 255, 0.15) !important; /* Light blue */
-}
-
-.category-row-Information {
-    background-color: rgba(76, 217, 123, 0.15) !important; /* Light green */
-}
-
-.category-row-Events {
-    background-color: rgba(255, 158, 76, 0.15) !important; /* Light orange */
-}
-
-/* Stronger row hover effect */
-.stDataFrame tbody tr:hover {
-    background-color: rgba(245, 245, 250, 0.8) !important;
-    transition: background-color 0.2s ease;
-}
-
-/* Strong row background colors based on category value */
-.stDataFrame td:has(div:contains("Action")) {
-    background-color: rgba(255, 76, 76, 0.12) !important; /* Light red */
-}
-
-.stDataFrame td:has(div:contains("Read")) {
-    background-color: rgba(76, 123, 255, 0.12) !important; /* Light blue */
-}
-
-.stDataFrame td:has(div:contains("Information")) {
-    background-color: rgba(76, 217, 123, 0.12) !important; /* Light green */
-}
-
-.stDataFrame td:has(div:contains("Events")) {
-    background-color: rgba(255, 158, 76, 0.12) !important; /* Light orange */
-}
-
-/* Row hover effect */
-.stDataFrame tbody tr:hover {
-    background-color: rgba(245, 245, 250, 0.8) !important;
-}
-
-/* Custom category row styling */
-.stDataFrame tbody tr td:has(div:contains("Action")) {
-    background-color: rgba(255, 76, 76, 0.1) !important;
-}
-
-.stDataFrame tbody tr td:has(div:contains("Read")) {
-    background-color: rgba(76, 123, 255, 0.1) !important;
-}
-
-.stDataFrame tbody tr td:has(div:contains("Information")) {
-    background-color: rgba(76, 217, 123, 0.1) !important;
-}
-
-.stDataFrame tbody tr td:has(div:contains("Events")) {
-    background-color: rgba(255, 158, 76, 0.1) !important;
-}
-</style>
-""", unsafe_allow_html=True)
+# --- Apply CSS Styles ---
+st.markdown(get_app_styles(), unsafe_allow_html=True)
 
 # Add the debug CSS separately when enabled
 if st.session_state.get('debug_layout', False):
-    st.markdown("""
-    <style>
-    /* Debug layout style rules for containers */
-    div[data-testid="stVerticalBlock"] {
-        background-color: rgba(255, 200, 200, 0.2) !important;
-        border: 1px dashed rgba(255, 0, 0, 0.3) !important;
-        padding: 2px !important;
-        margin-bottom: 5px !important;
-    }
-    
-    div[data-testid="stHorizontalBlock"] {
-        background-color: rgba(200, 200, 255, 0.2) !important;
-        border: 1px dashed rgba(0, 0, 255, 0.3) !important;
-        padding: 2px !important;
-    }
-    
-    div.element-container, div.stColumn, div.stButton, div.row-widget {
-        background-color: rgba(200, 255, 200, 0.2) !important;
-        border: 1px dashed rgba(0, 150, 0, 0.3) !important;
-        padding: 2px !important;
-        margin-bottom: 2px !important;
-    }
-    
-    .stDataFrame {
-        border: 2px solid rgba(128, 0, 128, 0.5) !important;
-    }
-    
-    div.stMarkdown {
-        background-color: rgba(255, 255, 200, 0.3) !important;
-        border: 1px dashed rgba(100, 100, 0, 0.3) !important;
-    }
-    
-    /* Sidebar debug styling */
-    [data-testid="stSidebar"] > div {
-        background-color: rgba(255, 200, 0, 0.1) !important;
-        border: 1px dashed rgba(255, 150, 0, 0.4) !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- Constants ---
-CAT_METHOD_LLM = "LLM Categorization"
-CAT_METHOD_RULES = "Rule-Based Categorization"
-
-# --- Helper to decode email subjects ---
-def decode_subject(subject):
-    """Decode email subjects encoded with =?UTF-8?Q?...?= format."""
-    if not subject:
-        return ""
-        
-    try:
-        # Check if it's an encoded string that needs decoding
-        if isinstance(subject, str) and "=?UTF-8?" in subject:
-            # Use proper email.header module to decode
-            import email.header
-            decoded_parts = email.header.decode_header(subject)
-            result = ""
-            for part, encoding in decoded_parts:
-                if isinstance(part, bytes):
-                    result += part.decode(encoding or 'utf-8', errors='replace')
-                else:
-                    result += str(part)
-            return result
-        return subject  # Return as-is if not encoded or not a string
-    except Exception as e:
-        logging.warning(f"Error decoding subject '{subject}': {str(e)}")
-        # Return the original if decoding fails
-        if isinstance(subject, str):
-            return subject
-        elif isinstance(subject, bytes):
-            return subject.decode('utf-8', errors='replace')
-        else:
-            return str(subject)
-
-# --- Helper Function to Get Ollama Models (Moved Here) ---
-def get_ollama_models():
-    """Fetches the list of available Ollama models."""
-    try:
-        models_info = ollama.list()
-        # Return model names, handling potential variations in key casing or structure
-        return sorted([model.get('name') for model in models_info.get('models', []) if model.get('name')])
-    except Exception as e:
-        # Use logging instead of st.warning here as it might be called before UI is fully ready
-        logging.warning(f"Could not fetch Ollama models. Is Ollama running? Error: {e}")
-        return [DEFAULT_MODEL] # Fallback to default
+    st.markdown(get_debug_styles(), unsafe_allow_html=True)
 
 # --- Initialize Session State ---
 if 'logged_in' not in st.session_state:
@@ -581,10 +84,7 @@ if 'progress_text' not in st.session_state:
 if 'debug_mode' not in st.session_state:
     st.session_state.debug_mode = False
 
-# Removed Load Environment Variables
-# gmail_address = os.getenv('GMAIL_ADDRESS', 'Not set') # No longer needed here
-
-# --- App Header with better styling ---
+# --- App Header ---
 st.markdown("<h1 style='text-align: left; margin-bottom: 30px;'>📥 Smart Inbox Cleaner</h1>", unsafe_allow_html=True)
 
 # --- Add Categorise Inbox Button below the title ---
@@ -627,23 +127,13 @@ if st.session_state.logged_in:
             progress_placeholder = st.empty()
             # Initialize with the current progress text
             progress_text = st.session_state.get('progress_text', 'Categorising 0 out of 0 emails (0%)')
-            progress_placeholder.markdown(f"""
-            <div style="padding-top: 8px; color: #555; display: flex; align-items: center;">
-                <div style="width: 12px; height: 12px; background-color: #4c7bff; border-radius: 50%; margin-right: 8px;"></div>
-                {progress_text}
-            </div>
-            """, unsafe_allow_html=True)
+            progress_placeholder.markdown(generate_progress_html(progress_text), unsafe_allow_html=True)
             
             # Store the placeholder in session state for the callback to use
             st.session_state.progress_placeholder = progress_placeholder
         elif st.session_state.get('progress_text') and st.session_state.categorization_run:
             # Show a success message briefly, then clear it on the next rerun
-            st.markdown(f"""
-            <div style="padding-top: 8px; color: #4cd97b; display: flex; align-items: center;">
-                <div style="width: 12px; height: 12px; background-color: #4cd97b; border-radius: 50%; margin-right: 8px;"></div>
-                {st.session_state.get('progress_text')}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(generate_complete_html(st.session_state.get('progress_text')), unsafe_allow_html=True)
             # Clear the progress text for future runs
             st.session_state.progress_text = None
     
@@ -819,10 +309,6 @@ else:
     if st.session_state.categorization_running:
         # This block runs after the rerun triggered by the Process Inbox button
         start_time = pd.Timestamp.now()
-        progress_bar = None 
-        if st.session_state.categorization_method == CAT_METHOD_LLM:
-            # Progress bar is now shown in the table overlay
-            pass
         
         # --- Callbacks --- 
         def update_progress(current, total):
@@ -833,12 +319,7 @@ else:
             # Update the progress placeholder if it exists
             if 'progress_placeholder' in st.session_state:
                 progress_placeholder = st.session_state.progress_placeholder
-                progress_placeholder.markdown(f"""
-                <div style="padding-top: 8px; color: #555; display: flex; align-items: center;">
-                    <div style="width: 12px; height: 12px; background-color: #4c7bff; border-radius: 50%; margin-right: 8px;"></div>
-                    {progress_text}
-                </div>
-                """, unsafe_allow_html=True)
+                progress_placeholder.markdown(generate_progress_html(progress_text), unsafe_allow_html=True)
             
         def check_if_stopped():
             return not st.session_state.categorization_running
@@ -970,65 +451,12 @@ else:
         # Get category counts 
         category_counts = st.session_state.df['category'].value_counts().sort_index()
         
-        # Build status display with styled category pills and batch info
-        status_html = '<div class="inbox-status">'
-        status_html += '<div style="font-weight: 500; margin-bottom: 5px;">Inbox Status:</div>'
-        status_html += '<div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">'
-        
-        # Add a pill for each category with the appropriate color
-        for cat, count in category_counts.items():
-            if cat == "Action":
-                color = "#ff4c4c"
-                text_color = "white"
-            elif cat == "Read":
-                color = "#4c7bff"
-                text_color = "white"
-            elif cat == "Information":
-                color = "#4cd97b"
-                text_color = "white"
-            elif cat == "Events":
-                color = "#ff9e4c"
-                text_color = "white"
-            else:  # Uncategorised or any other
-                color = "#e0e0e0"
-                text_color = "#555"
-                
-            status_html += f'<div style="background-color: {color}; color: {text_color}; border-radius: 12px; padding: 3px 12px; font-size: 0.9rem;">{cat}: {count}</div>'
-        
-        # Add batch info at the end of the category pills
-        status_html += f'<div style="margin-left: auto; color: #666; font-size: 0.9rem;">Batch: {current_batch_size} of {total_emails}</div>'
-        
-        status_html += '</div></div>'
-        
-        # Add the status HTML above the table
+        # Generate and display the status HTML
+        status_html = generate_status_html(category_counts, current_batch_size, total_emails)
         st.markdown(status_html, unsafe_allow_html=True)
 
-        # Add a custom component for row styling
-        row_style_html = """
-        <style>
-        /* Create colored backgrounds for rows based on category text */
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Action") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Action") {
-            background-color: rgba(255, 76, 76, 0.08) !important;
-        }
-        
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Read") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Read") {
-            background-color: rgba(76, 123, 255, 0.08) !important;
-        }
-        
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Information") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Information") {
-            background-color: rgba(76, 217, 123, 0.08) !important;
-        }
-        
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Events") ~ td,
-        .stDataFrame tbody tr:nth-child(n) td:nth-child(5):contains("Events") {
-            background-color: rgba(255, 158, 76, 0.08) !important;
-        }
-        </style>
-        """
-        st.markdown(row_style_html, unsafe_allow_html=True)
+        # Add row styling CSS
+        st.markdown(get_row_style_html(), unsafe_allow_html=True)
 
         # Create a loading overlay for the table when processing
         table_disabled = False
@@ -1048,11 +476,11 @@ else:
                 # Use all defined rule categories + Uncategorised for the dropdown
                 options=[CAT_UNCATEGORISED] + RULE_CATEGORIES, 
                 required=True,
-                width="medium"
+                width="small"  # Changed to small to match our CSS
             ),
             "date": st.column_config.DatetimeColumn(
                 "Date", 
-                format="DD/MM/YYYY HH:mm",
+                format="MMM D, h:mm a",  # More readable format (e.g., "Jan 15, 3:45 pm")
                 width="small"
             ),
             "from": st.column_config.TextColumn(
@@ -1250,3 +678,75 @@ else:
     elif st.session_state.logged_in:
         # Show only if logged in but no emails were found/loaded
         st.write("No emails to display.")
+
+    # After data editor is rendered, add JavaScript to apply our CSS classes to the table columns
+    st.markdown("""
+    <script>
+    // Apply custom CSS classes to table columns for better styling
+    function applyTableColumnClasses() {
+        // Wait for the table to be fully rendered
+        setTimeout(() => {
+            const table = document.querySelector('.stDataFrame table');
+            if (!table) return;
+            
+            // Get all header cells
+            const headerCells = table.querySelectorAll('thead th');
+            
+            // Apply classes based on column content
+            headerCells.forEach(cell => {
+                const text = cell.textContent.trim();
+                
+                if (text === 'Category') {
+                    cell.classList.add('column-category');
+                } else if (text === 'Date') {
+                    cell.classList.add('column-date');
+                } else if (text === 'From') {
+                    cell.classList.add('column-from');
+                } else if (text === 'Subject') {
+                    cell.classList.add('column-subject');
+                } else if (text === 'Select') {
+                    cell.classList.add('column-select');
+                }
+                
+                // Apply same classes to all cells in this column
+                const columnIndex = Array.from(headerCells).indexOf(cell);
+                const bodyCells = table.querySelectorAll(`tbody tr td:nth-child(${columnIndex + 1})`);
+                
+                bodyCells.forEach(bodyCell => {
+                    if (text === 'Category') {
+                        bodyCell.classList.add('column-category');
+                    } else if (text === 'Date') {
+                        bodyCell.classList.add('column-date');
+                    } else if (text === 'From') {
+                        bodyCell.classList.add('column-from');
+                    } else if (text === 'Subject') {
+                        bodyCell.classList.add('column-subject');
+                    } else if (text === 'Select') {
+                        bodyCell.classList.add('column-select');
+                    }
+                });
+            });
+        }, 500); // Wait for table to render
+    }
+    
+    // Run on page load and when DOM changes
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initial application
+        applyTableColumnClasses();
+        
+        // Set up observer for DOM changes
+        const observer = new MutationObserver(function(mutations) {
+            applyTableColumnClasses();
+        });
+        
+        // Start observing the document
+        observer.observe(document.body, { childList: true, subtree: true });
+        
+        // Also run periodically as a fallback
+        setInterval(applyTableColumnClasses, 1000);
+    });
+    </script>
+    """, unsafe_allow_html=True)
+
+    # Add category pill styling JavaScript
+    st.markdown(generate_category_pill_js(), unsafe_allow_html=True)

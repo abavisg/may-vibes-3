@@ -13,7 +13,7 @@ class EmailModal:
         self,
         title: str,
         key: str,
-        padding: int = 0,
+        padding: int = 20,
         max_width: int = 600,
         hide_close_button: bool = True
     ):
@@ -51,11 +51,6 @@ class EmailModal:
                 /* Hide the X button */
                 [data-testid="stModal"] [data-testid="TextElement"] ~ button {
                     display: none !important;
-                }
-
-                [data-testid="stMarkdown"] > div > div:first-child {
-                    display: none !important;
-                    color: red !important;
                 }
                 
                 /* Remove the grey border line */
