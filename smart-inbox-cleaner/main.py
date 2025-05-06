@@ -1,5 +1,6 @@
 import streamlit as st
 import logging # Use logging
+import os  # Added back for env vars
 # Removed os import
 from email_client import connect_oauth
 from email_mover import move_emails
@@ -13,6 +14,8 @@ from categorizer import (
 from llm_categorizer import categorize_emails_llm, DEFAULT_MODEL
 import pandas as pd
 import ollama # Import ollama to list models
+# Import the status component module
+from status_component import setup_status_component, is_electron
 
 # --- Setup Logging (Optional: Configure Streamlit's logger if needed) ---
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') 
@@ -28,16 +31,211 @@ st.set_page_config(
 # --- Custom CSS ---
 st.markdown("""
 <style>
-/* Base font size */
-html, body, [class*="st-"], .stDataFrame {
-    font-size: 18px !important;
+/* Global styling */
+html, body, [class*="st-"] {
+    font-size: 16px !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif !important;
 }
-/* Make dataframe take full width */
+
+/* Main app container */
+.main .block-container {
+    padding: 1rem 1rem 1rem 1rem !important;
+    max-width: 100% !important;
+}
+
+/* Card styling for the entire app */
+.main .block-container {
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+/* Category pills styling */
+.stDataFrame [data-testid="StyledDataFrameDataCell"]:has(div:contains("Action")) div {
+    background-color: #ff4c4c !important;
+    color: white !important;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    display: inline-block;
+}
+
+.stDataFrame [data-testid="StyledDataFrameDataCell"]:has(div:contains("Read")) div {
+    background-color: #4c7bff !important;
+    color: white !important;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    display: inline-block;
+}
+
+.stDataFrame [data-testid="StyledDataFrameDataCell"]:has(div:contains("Info")) div {
+    background-color: #4cd97b !important;
+    color: white !important;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    display: inline-block;
+}
+
+.stDataFrame [data-testid="StyledDataFrameDataCell"]:has(div:contains("Uncategorized")) div {
+    background-color: #e0e0e0 !important;
+    color: #555 !important;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    display: inline-block;
+}
+
+/* Button styling */
+.stButton > button {
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    padding: 0.5rem 1.5rem !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08) !important;
+    margin-right: 10px !important;
+    margin-bottom: 10px !important;
+    border: none !important;
+}
+
+.stButton > button[kind="primary"] {
+    background-color: #4c7bff !important;
+}
+
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+    background-color: white;
+    padding: 2rem 1rem;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1.5rem;
+}
+
+[data-testid="stSidebar"] .block-container {
+    margin-top: 1rem;
+}
+
+/* Table styling */
 .stDataFrame {
     width: 100%;
 }
+
+.stDataFrame [data-testid="StyledDataFrameDataCell"] {
+    font-size: 0.9rem !important;
+    padding: 0.5rem 0.75rem !important;
+}
+
+.stDataFrame [data-testid="StyledDataFrameRowHeader"] {
+    display: none;
+}
+
+.stDataFrame thead th {
+    background-color: #f8f9fa;
+    font-weight: 600 !important;
+    padding: 0.75rem !important;
+    text-transform: none !important;
+    border-bottom: 1px solid #eaeaea !important;
+}
+
+.stDataFrame tbody tr {
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.stDataFrame tbody tr:hover {
+    background-color: #f9f9f9;
+}
+
+/* Processing overlay styling */
+.processing-overlay {
+    position: relative;
+    z-index: 1000;
+    background-color: rgba(245, 245, 250, 0.95);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Disabled table styling during processing */
+.disabled-table [data-testid="stDataFrame"] {
+    opacity: 0.8;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.disabled-table [data-testid="stDataFrame"]::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(245, 245, 250, 0.4);
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Inbox status styling */
+.inbox-status {
+    text-align: left;
+    margin-bottom: 1rem;
+}
+
+/* Remove padding from header */
+header {
+    display: none;
+}
 </style>
 """, unsafe_allow_html=True)
+
+# Add the debug CSS separately when enabled
+if st.session_state.get('debug_layout', False):
+    st.markdown("""
+    <style>
+    /* Debug layout style rules for containers */
+    div[data-testid="stVerticalBlock"] {
+        background-color: rgba(255, 200, 200, 0.2) !important;
+        border: 1px dashed rgba(255, 0, 0, 0.3) !important;
+        padding: 2px !important;
+        margin-bottom: 5px !important;
+    }
+    
+    div[data-testid="stHorizontalBlock"] {
+        background-color: rgba(200, 200, 255, 0.2) !important;
+        border: 1px dashed rgba(0, 0, 255, 0.3) !important;
+        padding: 2px !important;
+    }
+    
+    div.element-container, div.stColumn, div.stButton, div.row-widget {
+        background-color: rgba(200, 255, 200, 0.2) !important;
+        border: 1px dashed rgba(0, 150, 0, 0.3) !important;
+        padding: 2px !important;
+        margin-bottom: 2px !important;
+    }
+    
+    .stDataFrame {
+        border: 2px solid rgba(128, 0, 128, 0.5) !important;
+    }
+    
+    div.stMarkdown {
+        background-color: rgba(255, 255, 200, 0.3) !important;
+        border: 1px dashed rgba(100, 100, 0, 0.3) !important;
+    }
+    
+    /* Sidebar debug styling */
+    [data-testid="stSidebar"] > div {
+        background-color: rgba(255, 200, 0, 0.1) !important;
+        border: 1px dashed rgba(255, 150, 0, 0.4) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- Constants ---
 CAT_METHOD_LLM = "LLM Categorization"
@@ -80,12 +278,74 @@ if 'selected_llm_model' not in st.session_state:
     st.session_state.selected_llm_model = DEFAULT_MODEL # Default LLM model
 if 'categorization_running' not in st.session_state:
     st.session_state.categorization_running = False
+if 'table_editable' not in st.session_state:
+    st.session_state.table_editable = True # Controls whether the table is editable
+if 'debug_mode' not in st.session_state:
+    st.session_state.debug_mode = False
 
 # Removed Load Environment Variables
 # gmail_address = os.getenv('GMAIL_ADDRESS', 'Not set') # No longer needed here
 
-# --- App Header ---
-st.title('📥 Smart Inbox Cleaner')
+# --- App Header with better styling ---
+st.markdown("<h1 style='text-align: left; margin-bottom: 30px;'>📥 Smart Inbox Cleaner</h1>", unsafe_allow_html=True)
+
+# --- Add Process Inbox Button below the title ---
+if st.session_state.logged_in:
+    # Create a layout with columns for left alignment of the button and progress text
+    left_col, progress_col = st.columns([1, 3])
+    
+    # Process Inbox button in the left column
+    with left_col:
+        if not st.session_state.categorization_running:
+            if st.button("Process Inbox", key="process_inbox_button", type="primary", use_container_width=True):
+                if not st.session_state.emails:
+                    st.warning("No emails fetched to categorize.")
+                else:
+                    st.session_state.categorization_running = True
+                    st.session_state.table_editable = False # Make table non-editable during processing
+                    # Initialize progress info in session state
+                    st.session_state.progress_text = "Starting processing..."
+                    # Rerun to switch button and start processing below
+                    st.rerun()
+        else:
+            if st.button("Stop Processing", key="stop_process_button", type="secondary", use_container_width=True):
+                st.session_state.categorization_running = False # Signal stop
+                st.session_state.table_editable = True # Make table editable again
+                
+                # Reset categorization state to initial state
+                st.session_state.categorization_run = False
+                
+                # Reset all emails to uncategorized state if any were processed
+                if not st.session_state.df.empty:
+                    st.session_state.df['category'] = CAT_UNCATEGORISED
+                
+                st.warning("Processing stopped. Changes cancelled.")
+                st.rerun()
+    
+    # Display progress text in the right column when processing
+    with progress_col:
+        if st.session_state.categorization_running:
+            # Show progress info with subtle styling
+            progress_text = st.session_state.get('progress_text', 'Processing...')
+            st.markdown(f"""
+            <div style="padding-top: 8px; color: #555; display: flex; align-items: center;">
+                <div style="width: 12px; height: 12px; background-color: #4c7bff; border-radius: 50%; margin-right: 8px;"></div>
+                {progress_text}
+            </div>
+            """, unsafe_allow_html=True)
+        elif st.session_state.get('progress_text') and st.session_state.categorization_run:
+            # Show a success message briefly, then clear it on the next rerun
+            st.markdown(f"""
+            <div style="padding-top: 8px; color: #4cd97b; display: flex; align-items: center;">
+                <div style="width: 12px; height: 12px; background-color: #4cd97b; border-radius: 50%; margin-right: 8px;"></div>
+                {st.session_state.get('progress_text')}
+            </div>
+            """, unsafe_allow_html=True)
+            # Clear the progress text for future runs
+            st.session_state.progress_text = None
+    
+    # Add spacing after the button
+    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
 # --- Login Section ---
 if not st.session_state.logged_in:
@@ -109,15 +369,33 @@ if not st.session_state.logged_in:
 
 # --- Main Application UI (Show only if logged in) ---
 else:
-    st.success(f"Status: {st.session_state.connection_status}")
-
     # --- Categorization Method Selector ---
     st.sidebar.title("Settings")
+    
+    # --- Connection Status in Sidebar ---
+    connection_status_container = st.sidebar.container()
+    with connection_status_container:
+        # Get email address from connection status
+        email_address = ""
+        status_parts = st.session_state.connection_status.split(" as ")
+        if len(status_parts) > 1:
+            email_address = status_parts[1]
+        
+        # Display email address in a cleaner format
+        st.sidebar.markdown(f"### {email_address}")
+        
+        # Logout button moved to bottom of sidebar
+
+    st.sidebar.markdown("---")
+    
+    # --- Categorization Method Selector ---
+    st.sidebar.markdown("### Categorization")
     st.session_state.categorization_method = st.sidebar.radio(
-        "Categorization Method",
+        "",
         [CAT_METHOD_LLM, CAT_METHOD_RULES],
         index=0 if st.session_state.categorization_method == CAT_METHOD_LLM else 1,
-        key="cat_method_selector"
+        key="cat_method_selector",
+        label_visibility="collapsed"
     )
 
     # --- LLM Model Selector (Conditional) ---
@@ -134,17 +412,71 @@ else:
         except ValueError:
              default_index = 0 # Fallback if model somehow isn't in list
              st.session_state.selected_llm_model = available_models[0] # Reset selection
-             
+        
+        st.sidebar.markdown("### LLM Model")
         st.session_state.selected_llm_model = st.sidebar.selectbox(
-            "Select LLM Model (Ollama)",
+            "",
             options=available_models,
             index=default_index,
             key="llm_model_selector",
-            help="Ensure the selected model is available in your local Ollama instance."
+            label_visibility="collapsed"
         )
-
-    # --- REMOVED: Test Mode Toggle ---
-    # No longer needed as limit is controlled by .env
+        
+    # --- Debug Mode Toggle ---
+    with st.sidebar.expander("Developer Options", expanded=False):
+        st.session_state.debug_mode = st.checkbox(
+            "Debug Mode", 
+            value=st.session_state.debug_mode,
+            help="Show additional debugging information"
+        )
+        
+        # Add layout debug toggle with a callback to force rerun
+        if 'debug_layout' not in st.session_state:
+            st.session_state.debug_layout = False
+        
+        # Helper function to toggle debug layout and force rerun
+        def toggle_debug_layout():
+            st.session_state.debug_layout = not st.session_state.debug_layout
+            st.rerun()
+            
+        st.button(
+            f"{'Disable' if st.session_state.debug_layout else 'Enable'} Debug Layout", 
+            on_click=toggle_debug_layout,
+            help="Show colored backgrounds for layout debugging"
+        )
+        
+        if st.session_state.debug_mode:
+            st.write("App Environment:")
+            st.json({
+                "ELECTRON_APP_VERSION": os.environ.get("ELECTRON_APP_VERSION", "Not set"),
+                "ELECTRON_RUN_AS_NODE": os.environ.get("ELECTRON_RUN_AS_NODE", "Not set"),
+                "Is Electron (detected)": is_electron()
+            })
+    
+    # --- Add Status Component to Sidebar ---
+    setup_status_component()
+    
+    # --- Add Logout Button at the very bottom of the sidebar ---
+    logout_container = st.sidebar.container()
+    if logout_container.button("⚪ Logout", key="sidebar_logout", type="secondary", use_container_width=True):
+        if st.session_state.imap_client:
+            try:
+                st.session_state.imap_client.logout()
+                logging.info("IMAP client logged out.")
+            except Exception as e:
+                logging.error(f"Error during IMAP logout: {e}")
+        
+        # Clear session state related to login
+        st.session_state.logged_in = False
+        st.session_state.imap_client = None
+        st.session_state.connection_status = "Logged out."
+        st.session_state.emails = []
+        st.session_state.df = pd.DataFrame()
+        st.session_state.categorization_run = False
+        st.session_state.show_move_confirmation = False
+        st.session_state.manual_selection_mode = False
+        st.toast("You have been logged out.")
+        st.rerun()
 
     # --- Fetch Emails (Only if not already fetched) ---
     if not st.session_state.emails:
@@ -166,256 +498,152 @@ else:
                     st.error("IMAP client not available. Cannot fetch emails.")
             except Exception as e:
                 st.error(f"Error fetching emails: {e}")
-                # Log out on critical fetch error?
-                # st.session_state.logged_in = False
-                # st.session_state.imap_client = None
-                # st.rerun()
 
-    # --- Display Area ---
-    st.header("Inbox Emails")
-
-    # --- Main Action Buttons (Hidden in Manual Selection Mode) ---
-    if not st.session_state.manual_selection_mode:
-        action_col, move_col = st.columns([1, 3]) # Main columns for Actions and Move
+    # --- Processing Logic (Only runs when Process Inbox button is clicked) ---
+    if st.session_state.categorization_running:
+        # This block runs after the rerun triggered by the Process Inbox button
+        start_time = pd.Timestamp.now()
+        progress_bar = None 
+        if st.session_state.categorization_method == CAT_METHOD_LLM:
+            # Progress bar is now shown in the table overlay
+            pass
         
-        # Categorization Section
-        with action_col:
-            st.write("**Categorize**")
-            st.caption(f"Using: {st.session_state.categorization_method}")
+        # --- Callbacks --- 
+        def update_progress(current, total):
+            # Update the progress text in session state
+            progress_text = f"Processing email {current}/{total}... ({int(current/total*100)}%)"
+            st.session_state.progress_text = progress_text
+            
+        def check_if_stopped():
+            return not st.session_state.categorization_running
+        
+        # --- Run Categorization --- 
+        categorized_email_list = None
+        process_completed = False
+        try:
+            # Only use spinner for the fast rule-based method
             if st.session_state.categorization_method == CAT_METHOD_LLM:
-                 st.caption(f"Model: {st.session_state.selected_llm_model}")
-
-            # Create columns for the button and the progress bar
-            button_col, progress_col = st.columns([1, 2]) # Sub-columns within action_col
-
-            with button_col:
-                button_placeholder = st.empty()
-            with progress_col:
-                # Placeholder for the progress bar - defined in the right column
-                progress_bar_placeholder = st.empty()
-
-            # --- Button Logic --- 
-            if st.session_state.categorization_running:
-                 # Show Stop button if running
-                 # Use the button placeholder directly
-                 if button_placeholder.button("⏹️ Stop", key="stop_cat_button", help="Stop categorization after the current email."):
-                      st.session_state.categorization_running = False # Signal stop
-                      st.warning("Stop requested. Categorization cancelled.")
-                      progress_bar_placeholder.empty() # Clear progress bar
-                      st.rerun()
-            else:
-                 # Show Run button if not running
-                 # Use the button placeholder directly
-                 if button_placeholder.button("▶️ Run", key="run_cat_button", help="Start categorization process."):
-                      if not st.session_state.emails:
-                           st.warning("No emails fetched to categorize.")
-                      else:
-                           st.session_state.categorization_running = True
-                           # Rerun to switch button and start processing below
-                           st.rerun() 
-                           
-            # --- Processing Logic (Runs only if currently running) ---
-            if st.session_state.categorization_running:
-                 # This block runs *after* the rerun triggered by the Run button
-                 start_time = pd.Timestamp.now()
-                 progress_bar = None 
-                 if st.session_state.categorization_method == CAT_METHOD_LLM:
-                      progress_bar = progress_bar_placeholder.progress(0, text="Starting LLM categorization...")
-                 
-                 # --- Callbacks --- 
-                 def update_progress(current, total):
-                     if progress_bar:
-                         progress_text = f"Processing email {current}/{total}..."
-                         progress_value = current / total
-                         try:
-                             progress_bar.progress(progress_value, text=progress_text)
-                         except Exception as e:
-                             logging.warning(f"Could not update progress bar: {e}")
-                 
-                 def check_if_stopped():
-                     return not st.session_state.categorization_running
-                 
-                 # --- Run Categorization --- 
-                 categorized_email_list = None
-                 process_completed = False
-                 try:
-                     # Only use spinner for the fast rule-based method
-                     if st.session_state.categorization_method == CAT_METHOD_LLM:
-                         categorized_email_list = categorize_emails_llm(
-                             st.session_state.emails.copy(), 
-                             model_name=st.session_state.selected_llm_model,
-                             progress_callback=update_progress,
-                             stop_checker=check_if_stopped
-                         )
-                         process_completed = categorized_email_list is not None
-                     else: # Rule-Based
-                         spinner_text = f"Running {st.session_state.categorization_method}..."
-                         with st.spinner(spinner_text): 
-                              categorized_email_list = categorize_emails_rules(
-                                   st.session_state.emails.copy()
-                              )
-                         process_completed = True
-                 except Exception as e:
-                     logging.error(f"Error during categorization: {e}", exc_info=True)
-                     st.error(f"An error occurred during categorization: {e}")
-                     process_completed = False
-                 finally:
-                     # --- Handle Results & State Reset --- 
-                     was_stopped = not st.session_state.categorization_running # Check if stop was clicked during run
-                     st.session_state.categorization_running = False # Ensure state is reset
-                     
-                     if was_stopped:
-                         logging.info("Categorization stopped by user.") # Added logging
-                         pass 
-                     elif categorized_email_list is None and st.session_state.categorization_method == CAT_METHOD_LLM:
-                         st.warning("Categorization stopped or failed unexpectedly.")
-                         progress_bar_placeholder.empty()
-                     elif categorized_email_list:
-                         # -- START Added Logging --
-                         logging.info(f"Categorization successful. Received {len(categorized_email_list)} emails back.")
-                         if len(categorized_email_list) > 0:
-                             # Log categories from the first few results
-                             try:
-                                 categories_sample = [e.get('category', 'MISSING') for e in categorized_email_list[:5]]
-                                 logging.info(f"Sample categories from result list: {categories_sample}")
-                             except Exception as log_err:
-                                 logging.error(f"Error logging category sample: {log_err}")
-                         # -- END Added Logging --
-                         
-                         # ... (update dataframe logic) ...
-                         temp_df = pd.DataFrame(categorized_email_list)
-                         temp_df['Select'] = False
-                         temp_df['date'] = pd.to_datetime(temp_df['date'])
-                         temp_df = temp_df.sort_values(by='date', ascending=False)
-                         # Ensure 'category' column exists before selecting it
-                         if 'category' not in temp_df.columns:
-                             logging.error("'category' column missing from DataFrame after categorization!")
-                             temp_df['category'] = CAT_UNCATEGORISED # Add default if missing
-                             
-                         st.session_state.df = temp_df[['Select', 'date', 'from', 'subject', 'category', 'uid']]
-                         # -- START Added Logging --
-                         logging.info(f"Updated st.session_state.df. Shape: {st.session_state.df.shape}")
-                         if not st.session_state.df.empty:
-                             logging.info(f"First 5 rows of updated st.session_state.df:\n{st.session_state.df.head().to_string()}")
-                         # -- END Added Logging --
-                         
-                         st.session_state.categorization_run = True
-                         st.session_state.show_move_confirmation = False
-                         duration = pd.Timestamp.now() - start_time
-                         st.toast(f"Categorization complete in {duration.total_seconds():.2f}s!")
-                         if progress_bar: progress_bar.progress(1.0, text="Categorization complete!") 
-                     else: # Completed but no results
-                         logging.warning("Categorization function returned an empty list or None (and wasn't stopped).") # Added logging
-                         st.warning("Categorization ran but produced no results.")
-                         progress_bar_placeholder.empty()
-                 
-                     # Remove the final rerun - let Streamlit handle update based on state changes
-                     # if final_rerun_needed:
-                     #      st.rerun()
-
-        # Move Emails Section (Keep in second column)
-        with move_col:
-             st.write("**Move Emails**") # Add subheader
-             # Determine enabled state for moving
-             move_button_disabled = True
-             if st.session_state.categorization_run and not st.session_state.df.empty:
-                 category_counts = st.session_state.df['category'].value_counts()
-                 relevant_present = any(cat in category_counts for cat in MOVE_CATEGORIES if category_counts.get(cat, 0) > 0)
-                 if relevant_present:
-                     move_button_disabled = False
- 
-             if st.button("Move All Categorized", disabled=move_button_disabled, key="move_all_button"):
-                 current_counts = st.session_state.df['category'].value_counts()
-                 st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
-                 if st.session_state.move_counts:
-                      st.session_state.show_move_confirmation = True
-                      st.rerun()
-                 else:
-                      st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
-                      st.session_state.show_move_confirmation = False
-
-    # --- Move Confirmation Dialog (Inline, conditional display) ---
-    if st.session_state.show_move_confirmation and not st.session_state.manual_selection_mode:
-        confirm_items = [f"{cat}: {count}" for cat, count in st.session_state.move_counts.items() if count > 0]
-        confirm_text = " | ".join(confirm_items)
-        st.warning(f"Confirm moving all applicable emails? -> {confirm_text}")
-        col_confirm_yes, col_confirm_no, col_confirm_manual = st.columns(3)
-        with col_confirm_yes:
-            if st.button("✅ Yes, Move All"):
-                if not st.session_state.imap_client:
-                    st.error("IMAP client not available. Cannot move emails.")
-                else:
-                    with st.spinner("Moving emails..."):
-                        relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy() # Use constant
-                        if not relevant_df.empty:
-                            uids_to_move = relevant_df['uid'].tolist()
-                            category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
-                            # Pass the IMAP client from session state
-                            moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
-                            if moved_uids is not None: # Check if move was attempted (even if 0 moved)
-                                st.toast(f"Moved {len(moved_uids)} email(s). Test mode might be active.")
-                                # Update state immediately
-                                st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
-                                st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
-                            else:
-                                st.error("Move operation failed. Check logs.")
-                        else:
-                            st.toast("No relevant emails found to move.")
-                st.session_state.show_move_confirmation = False
-                st.rerun()
-        with col_confirm_no:
-            if st.button("❌ No, Cancel"):
-                st.session_state.show_move_confirmation = False
-                st.rerun()
-        with col_confirm_manual:
-            if st.button("✍️ No, Select Manually"):
-                st.session_state.manual_selection_mode = True
-                st.session_state.show_move_confirmation = False
-                st.rerun()
-
-    # --- Manual Selection Mode UI ---
-    if st.session_state.manual_selection_mode:
-        st.info("Manual Selection Mode: Select specific emails using the checkboxes.")
-        col_move_sel, col_cancel_sel = st.columns(2)
-        with col_move_sel:
-            if st.button("Move Selected Emails"):
-                if not st.session_state.imap_client:
-                    st.error("IMAP client not available. Cannot move emails.")
-                elif not st.session_state.df.empty:
-                    selected_df = st.session_state.df[st.session_state.df['Select'] == True]
-                    # relevant_categories_to_move = ["Action", "Read", "Events"] # Use constant list
-                    selected_to_move = selected_df[selected_df['category'].isin(MOVE_CATEGORIES)].copy() # Use constant
-                    if not selected_to_move.empty:
-                        uids_to_move = selected_to_move['uid'].tolist()
-                        category_map = pd.Series(selected_to_move.category.values, index=selected_to_move.uid).to_dict()
-                        with st.spinner("Moving selected emails..."):
-                            # Pass the IMAP client from session state
-                            moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
-                            if moved_uids is not None:
-                                st.toast(f"Moved {len(moved_uids)} selected email(s). Test mode might be active.")
-                                # Update state immediately
-                                st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
-                                st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
-                            else:
-                                st.error("Move operation failed. Check logs.")
-                        st.session_state.manual_selection_mode = False
-                        st.rerun()
-                    else:
-                        st.warning(f"No valid emails selected (must be {', '.join(MOVE_CATEGORIES)}).") # Use constants
-                else:
-                    st.warning("No emails loaded.")
-        with col_cancel_sel:
-            if st.button("Cancel Manual Selection"):
-                st.session_state.manual_selection_mode = False
-                # Reset selection checkboxes in the DataFrame
+                categorized_email_list = categorize_emails_llm(
+                    st.session_state.emails.copy(), 
+                    model_name=st.session_state.selected_llm_model,
+                    progress_callback=update_progress,
+                    stop_checker=check_if_stopped
+                )
+                process_completed = categorized_email_list is not None
+            else: # Rule-Based
+                spinner_text = f"Running {st.session_state.categorization_method}..."
+                with st.spinner(spinner_text): 
+                    categorized_email_list = categorize_emails_rules(
+                        st.session_state.emails.copy()
+                    )
+                process_completed = True
+        except Exception as e:
+            logging.error(f"Error during categorization: {e}", exc_info=True)
+            st.error(f"An error occurred during categorization: {e}")
+            process_completed = False
+        finally:
+            # --- Handle Results & State Reset --- 
+            was_stopped = not st.session_state.categorization_running # Check if stop was clicked during run
+            st.session_state.categorization_running = False # Ensure state is reset
+            st.session_state.table_editable = True # Make table editable again
+            
+            if was_stopped:
+                logging.info("Categorization stopped by user.")
+                st.session_state.progress_text = "Processing cancelled."
+                pass 
+            elif categorized_email_list is None and st.session_state.categorization_method == CAT_METHOD_LLM:
+                # Reset to initial state when categorization fails
+                st.session_state.categorization_run = False
+                # Reset emails to uncategorized state
                 if not st.session_state.df.empty:
-                     st.session_state.df['Select'] = False
+                    st.session_state.df['category'] = CAT_UNCATEGORISED
+                
+                st.session_state.progress_text = "Processing failed."
+                st.warning("Categorization stopped or failed unexpectedly.")
+            elif categorized_email_list:
+                logging.info(f"Categorization successful. Received {len(categorized_email_list)} emails back.")
+                
+                temp_df = pd.DataFrame(categorized_email_list)
+                temp_df['Select'] = False
+                temp_df['date'] = pd.to_datetime(temp_df['date'])
+                temp_df = temp_df.sort_values(by='date', ascending=False)
+                # Ensure 'category' column exists before selecting it
+                if 'category' not in temp_df.columns:
+                    logging.error("'category' column missing from DataFrame after categorization!")
+                    temp_df['category'] = CAT_UNCATEGORISED # Add default if missing
+                    
+                st.session_state.df = temp_df[['Select', 'date', 'from', 'subject', 'category', 'uid']]
+                
+                st.session_state.categorization_run = True
+                st.session_state.show_move_confirmation = False
+                duration = pd.Timestamp.now() - start_time
+                st.session_state.progress_text = f"Processing complete in {duration.total_seconds():.2f}s"
+                st.toast(f"Complete in {duration.total_seconds():.2f}s")
+                st.rerun()  # Add rerun to refresh the UI state
+            else: # Completed but no results
+                # Reset to initial state when no results are produced
+                st.session_state.categorization_run = False
+                # Reset emails to uncategorized state
+                if not st.session_state.df.empty:
+                    st.session_state.df['category'] = CAT_UNCATEGORISED
+                    
+                st.session_state.progress_text = "Processing completed with no results."
+                logging.warning("Categorization function returned an empty list or None (and wasn't stopped).")
+                st.warning("Categorization ran but produced no results.")
+                # Force a rerun to reset the UI
                 st.rerun()
 
     # --- Email Editor Table ---
     if not st.session_state.df.empty:
         # Ensure latest emails are always at the top before display
         st.session_state.df = st.session_state.df.sort_values(by='date', ascending=False)
+
+        # Add batch information (similar to the design)
+        total_emails = len(st.session_state.emails)
+        current_batch_size = min(250, len(st.session_state.df))
+        
+        # Get category counts 
+        category_counts = st.session_state.df['category'].value_counts().sort_index()
+        
+        # Build status display with styled category pills and batch info
+        status_html = '<div class="inbox-status">'
+        status_html += '<div style="font-weight: 500; margin-bottom: 5px;">Inbox Status:</div>'
+        status_html += '<div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">'
+        
+        # Add a pill for each category with the appropriate color
+        for cat, count in category_counts.items():
+            if cat == "Action":
+                color = "#ff4c4c"
+                text_color = "white"
+            elif cat == "Read":
+                color = "#4c7bff"
+                text_color = "white"
+            elif cat == "Info":
+                color = "#4cd97b"
+                text_color = "white"
+            elif cat == "Events":
+                color = "#ff9e4c"
+                text_color = "white"
+            else:  # Uncategorized or any other
+                color = "#e0e0e0"
+                text_color = "#555"
+                
+            status_html += f'<div style="background-color: {color}; color: {text_color}; border-radius: 12px; padding: 3px 12px; font-size: 0.9rem;">{cat}: {count}</div>'
+        
+        # Add batch info at the end of the category pills
+        status_html += f'<div style="margin-left: auto; color: #666; font-size: 0.9rem;">Batch: {current_batch_size} of {total_emails}</div>'
+        
+        status_html += '</div></div>'
+        
+        # Add the status HTML above the table
+        st.markdown(status_html, unsafe_allow_html=True)
+
+        # Create a loading overlay for the table when processing
+        table_disabled = False
+        if st.session_state.categorization_running:
+            # Add a class to mark the table as disabled instead of adding an overlay element
+            st.markdown('<div class="disabled-table">', unsafe_allow_html=True)
+            table_disabled = True
 
         # Dynamically configure columns
         column_config = {
@@ -425,10 +653,21 @@ else:
                 # Use all defined rule categories + Uncategorised for the dropdown
                 options=[CAT_UNCATEGORISED] + RULE_CATEGORIES, 
                 required=True,
+                width="medium"
             ),
-            "date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD HH:mm:ss"),
-            "from": "From",
-            "subject": "Subject",
+            "date": st.column_config.DatetimeColumn(
+                "Date", 
+                format="MM-DD-YY HH:mm",
+                width="small"
+            ),
+            "from": st.column_config.TextColumn(
+                "From",
+                width="medium"
+            ),
+            "subject": st.column_config.TextColumn(
+                "Subject",
+                width="large"
+            ),
             "Select": None # Default to hidden unless in manual mode
         }
         # Base columns that are always disabled from direct editing
@@ -442,6 +681,10 @@ else:
         else:
             # Allow editing category dropdown only when NOT in manual selection mode
             disabled_columns.append("Select") # Ensure Select is disabled if column exists but hidden
+        
+        # When categorization is running, disable the entire table 
+        if not st.session_state.table_editable:
+            disabled_columns.append("category") # Disable category editing during processing
 
         edited_df = st.data_editor(
             st.session_state.df,
@@ -459,33 +702,74 @@ else:
             # Optional: Add a subtle toast or indicator that changes are saved
             # st.toast("Changes saved in table.")
             st.rerun() # Rerun to reflect changes immediately
+            
+        # Close the disabled-table div if it was opened
+        if table_disabled:
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- Category Summary ---
-        category_counts = st.session_state.df['category'].value_counts().sort_index()
-        summary_items = [f"{cat}: {count}" for cat, count in category_counts.items()]
-        summary_text = " | ".join(summary_items)
-        st.markdown(f"**Inbox Status:** {summary_text}")
+        # --- Action Buttons Row (only show when categorization is completed) ---
+        if st.session_state.categorization_run and not st.session_state.categorization_running:
+            # Move to the bottom of the UI with some space
+            st.markdown("<div style='height: 20px'></div>", unsafe_allow_html=True)
+            
+            # Create columns for the buttons
+            button_cols = st.columns([1, 1, 1])
+            
+            # Confirm button (styled like in design)
+            with button_cols[0]:
+                # Only enable if we have emails to move
+                confirm_disabled = True
+                if not st.session_state.df.empty:
+                    category_counts = st.session_state.df['category'].value_counts()
+                    relevant_present = any(cat in category_counts for cat in MOVE_CATEGORIES if category_counts.get(cat, 0) > 0)
+                    if relevant_present:
+                        confirm_disabled = False
+                        
+                if st.button("Confirm", key="confirm_move_btn", type="primary", disabled=confirm_disabled):
+                    current_counts = st.session_state.df['category'].value_counts()
+                    st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
+                    if st.session_state.move_counts:
+                        if not st.session_state.imap_client:
+                            st.error("IMAP client not available. Cannot move emails.")
+                        else:
+                            with st.spinner("Moving emails..."):
+                                relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy() # Use constant
+                                if not relevant_df.empty:
+                                    uids_to_move = relevant_df['uid'].tolist()
+                                    category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
+                                    # Pass the IMAP client from session state
+                                    moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
+                                    if moved_uids is not None: # Check if move was attempted (even if 0 moved)
+                                        st.toast(f"Moved {len(moved_uids)} email(s).")
+                                        # Update state immediately
+                                        st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
+                                        st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
+                                    else:
+                                        st.error("Move operation failed. Check logs.")
+                                else:
+                                    st.toast("No relevant emails found to move.")
+                            st.rerun()
+                    else:
+                        st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
+                
+            # Cancel button
+            with button_cols[1]:
+                if st.button("Cancel", key="cancel_move_btn", type="secondary"):
+                    # Reset categorization state to initial state
+                    st.session_state.categorization_run = False
+                    
+                    # Reset all emails to uncategorized state
+                    if not st.session_state.df.empty:
+                        st.session_state.df['category'] = CAT_UNCATEGORISED
+                    
+                    st.rerun()
+            
+            # Next Batch button
+            with button_cols[2]:
+                if st.button("Next Batch", key="next_batch_btn", type="secondary"):
+                    # Implementation could be added later
+                    st.toast("Next batch functionality would be implemented here")
 
     elif st.session_state.logged_in:
         # Show only if logged in but no emails were found/loaded
         st.write("No emails to display.")
-
-    # Add a logout button
-    if st.button("Logout"):
-        if st.session_state.imap_client:
-            try:
-                st.session_state.imap_client.logout()
-                logging.info("IMAP client logged out.") # Use logging
-            except Exception as e:
-                logging.error(f"Error during IMAP logout: {e}") # Use logging
-        # Clear session state related to login
-        st.session_state.logged_in = False
-        st.session_state.imap_client = None
-        st.session_state.connection_status = "Logged out."
-        st.session_state.emails = []
-        st.session_state.df = pd.DataFrame()
-        st.session_state.categorization_run = False
-        st.session_state.show_move_confirmation = False
-        st.session_state.manual_selection_mode = False
-        st.toast("You have been logged out.")
-        st.rerun()

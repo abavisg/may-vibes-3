@@ -9,7 +9,7 @@ from datetime import datetime # Added
 # Import category constants from the rule-based categorizer
 # Using direct import as script is run directly via streamlit
 from categorizer import (
-    CAT_ACTION, CAT_READ, CAT_EVENTS, CAT_INFO, CAT_UNCATEGORISED,
+    CAT_ACTION, CAT_READ, CAT_EVENTS, CAT_UNCATEGORISED,
     RULE_CATEGORIES
 )
 
@@ -63,7 +63,6 @@ Category Meanings:
 - {CAT_ACTION}: Requires a specific action or response from me.
 - {CAT_READ}: Informational content like newsletters, articles, updates that I should read when I have time.
 - {CAT_EVENTS}: Relates to a specific invitation to an event, meeting, or calendar item (invitations, updates, reminders). It needs to be an event that I have responded YES.
-- {CAT_INFO}: Purely informational updates like notifications, confirmations, alerts (often automated).
 - {CAT_UNCATEGORISED}: Does not clearly fit into the other categories or requires manual review.
 
 Email Metadata:

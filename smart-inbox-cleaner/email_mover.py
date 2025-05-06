@@ -8,10 +8,6 @@ from categorizer import CAT_ACTION, CAT_READ, CAT_EVENTS, CAT_INFO
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Safety flag for testing: If True, only move one email per execution.
-# Controlled by environment variable TEST_MODE_MOVE_ONE (defaults to True).
-# Set TEST_MODE_MOVE_ONE=False in your environment (e.g., .env file) to disable.
-TEST_MODE_MOVE_ONE = os.getenv("TEST_MODE_MOVE_ONE", "True").lower() == "true"
 
 # Target folder mapping using constants
 TARGET_FOLDER_MAP: Dict[str, str] = {
@@ -85,11 +81,6 @@ def move_emails(server: IMAPClient, uids_to_move: List[int], category_map: Dict[
                 logging.info(f"Successfully moved UID {uid}.")
                 moved_uids.append(uid)
                 processed_uids += 1
-
-                # Apply safety flag (stop after first successful move if enabled)
-                if TEST_MODE_MOVE_ONE:
-                    logging.warning("TEST_MODE_MOVE_ONE enabled via env var. Stopping after first successful move.")
-                    break # Exit loop after moving one email
 
             except IMAPClientError as move_e:
                  logging.error(f"IMAP Error moving UID {uid} to {target_folder}: {move_e}")

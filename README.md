@@ -16,7 +16,6 @@ A local desktop-like productivity tool that helps you triage your inbox using GT
 - **Bulk Email Moving**: Moves all emails categorized as Action, Read, or Events to corresponding `SmartInbox/` subfolders (with confirmation).
 - **Manual Selection Moving**: Allows manually selecting specific emails (via checkboxes) from Action, Read, or Events categories to be moved.
 - **IMAP Folder Creation**: Automatically creates necessary `SmartInbox/` subfolders if they don't exist.
-- **Test Mode Safety**: Includes a flag (`TEST_MODE_MOVE_ONE` in `email_mover.py`) to only move one email at a time during testing.
 - **Desktop App Feel**: Uses Streamlit's wide layout and custom styling for a cleaner interface.
 - **Authentication:** `google-auth-oauthlib`, `google-api-python-client`
 - **LLM Integration:** `ollama` (via local Ollama instance)
@@ -27,7 +26,7 @@ A local desktop-like productivity tool that helps you triage your inbox using GT
 - **UI Framework:** Streamlit
 - **Email Protocol:** IMAP (via `imapclient` library)
 - **Data Handling:** Pandas
-- **Environment Variables:** `python-dotenv` (Minimal usage now, primarily for optional settings like `TEST_MODE_MOVE_ONE`).
+- **Environment Variables:** `python-dotenv` (Minimal usage now.
 
 ## Architecture
 
@@ -107,13 +106,7 @@ This is a monolithic desktop-like application running locally using Streamlit.
       # ... other entries
       ```
     *   This prevents accidentally committing sensitive files.
-
-8.  **(Optional) Configure Test Mode**: You can create a `.env` file in the `smart-inbox-cleaner` directory to control the test mode flag:
-    ```plaintext
-    # Set to False to move all matched emails at once
-    TEST_MODE_MOVE_ONE=True
-    ```
-
+    
 ## Run the application
 
 1.  Make sure your virtual environment is activated (`source venv/bin/activate`).
