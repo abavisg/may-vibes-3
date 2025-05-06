@@ -32,7 +32,8 @@ from html_generators import (
     generate_status_html, 
     generate_progress_html, 
     generate_complete_html, 
-    generate_category_pill_js
+    generate_category_pill_js,
+    generate_email_table_html
 )
 
 # --- Setup Logging ---
@@ -468,97 +469,44 @@ else:
         # Create a temporary dataframe without the color column
         display_df = st.session_state.df.copy()
 
-        # Dynamically configure columns
-        column_config = {
-            "uid": None, # Hide UID
-            "category": st.column_config.SelectboxColumn(
-                "Category",
-                # Use all defined rule categories + Uncategorised for the dropdown
-                options=[CAT_UNCATEGORISED] + RULE_CATEGORIES, 
-                required=True,
-                width="small"  # Changed to small to match our CSS
-            ),
-            "date": st.column_config.DatetimeColumn(
-                "Date", 
-                format="MMM D, h:mm a",  # More readable format (e.g., "Jan 15, 3:45 pm")
-                width="small"
-            ),
-            "from": st.column_config.TextColumn(
-                "From",
-                width="medium"
-            ),
-            "subject": st.column_config.TextColumn(
-                "Subject",
-                width="large"
-            )
-        }
-        
-        # Only add the Select column when in manual selection mode
-        if st.session_state.manual_selection_mode:
-            column_config["Select"] = st.column_config.CheckboxColumn(
-                "Select",
-                help="Select emails for manual actions",
-                default=False,
-                width="small"
-            )
-        else:
-            column_config["Select"] = None  # Hide when not in manual mode
-
-        # Base columns that are always disabled from direct editing
-        disabled_columns = ["date", "from", "subject", "uid"]
-
-        # If we're in manual selection mode, include Select in column_order
-        columns_to_display = ["date", "from", "subject", "category"]
-        if st.session_state.manual_selection_mode:
-            columns_to_display.insert(0, "Select")
-        
-        # When categorization is running, disable the entire table 
-        if not st.session_state.table_editable:
-            disabled_columns.append("category") # Disable category editing during processing
-        
-        # Before displaying the data editor, ensure subjects are decoded
+        # Before displaying the table, ensure subjects are decoded
         if not display_df.empty and 'subject' in display_df.columns:
             # Only decode if subject is a string and contains encoding pattern
             display_df['subject'] = display_df['subject'].apply(lambda s: decode_subject(s) if isinstance(s, str) and "=?UTF-8?" in s else s)
         
-        edited_df = st.data_editor(
-            display_df,
-            use_container_width=True,
-            height=600,
-            column_config=column_config,
-            disabled=disabled_columns,
-            key="data_editor",
-            on_change=None, # Clear any previous callbacks if needed
-            hide_index=True,
-            column_order=columns_to_display
-        )
-
-        # Update session state if edits were made (category or selection changes)
-        # Need to map back the edited values to the original dataframe columns
-        session_columns = ['Select', 'date', 'from', 'subject', 'category', 'uid']
-        edited_columns = [col for col in session_columns if col in edited_df.columns]
+        # Display the custom HTML table instead of the data editor
+        # Only include the columns we want to display in the HTML table
+        display_cols = ['date', 'from', 'subject', 'category']
+        html_display_df = display_df[display_cols].copy() if not display_df.empty else pd.DataFrame(columns=display_cols)
         
-        # Ensure edited subjects are also decoded
-        if 'subject' in edited_df.columns:
-            edited_df['subject'] = edited_df['subject'].apply(lambda s: decode_subject(s) if isinstance(s, str) and "=?UTF-8?" in s else s)
-            
-        # Check if changes were made to columns we care about
-        if not st.session_state.df[edited_columns].equals(edited_df[edited_columns]):
-            # Update the category in the session state dataframe
-            if 'category' in edited_df.columns:
-                st.session_state.df['category'] = edited_df['category']
-            
-            # Update the Select column if it exists
-            if 'Select' in edited_df.columns:
-                st.session_state.df['Select'] = edited_df['Select']
+        # Generate and display the HTML table
+        email_table_html = generate_email_table_html(html_display_df)
+        
+        # Display the HTML table using components.v1.html
+        st.components.v1.html(email_table_html, height=600, scrolling=True)
+        
+        # Handle category changes from HTML dropdown
+        # This uses URL query parameters which will be updated via JavaScript
+        params = st.query_params
+        if 'email_id' in params and 'category' in params:
+            try:
+                # Extract the email_id index and category from the parameters
+                email_idx = int(params['email_id'].replace('email_', ''))
+                new_category = params['category']
                 
-            # Make sure subjects are properly decoded in the session state
-            if 'subject' in edited_df.columns:
-                st.session_state.df['subject'] = edited_df['subject']
-            
-            # Rerun to reflect changes immediately
-            st.rerun()
-            
+                # Find and update the appropriate email in the dataframe
+                if email_idx < len(st.session_state.df):
+                    st.session_state.df.iloc[email_idx, st.session_state.df.columns.get_loc('category')] = new_category
+                    
+                    # Clear the parameters to avoid repeated updates
+                    params.clear()
+                    
+                    # Refresh the page to show the updated categories
+                    st.rerun()
+            except (ValueError, KeyError, IndexError) as e:
+                st.error(f"Error processing category update: {e}")
+                params.clear()
+        
         # Close the disabled-table div if it was opened
         if table_disabled:
             st.markdown('</div>', unsafe_allow_html=True)
@@ -678,75 +626,3 @@ else:
     elif st.session_state.logged_in:
         # Show only if logged in but no emails were found/loaded
         st.write("No emails to display.")
-
-    # After data editor is rendered, add JavaScript to apply our CSS classes to the table columns
-    st.markdown("""
-    <script>
-    // Apply custom CSS classes to table columns for better styling
-    function applyTableColumnClasses() {
-        // Wait for the table to be fully rendered
-        setTimeout(() => {
-            const table = document.querySelector('.stDataFrame table');
-            if (!table) return;
-            
-            // Get all header cells
-            const headerCells = table.querySelectorAll('thead th');
-            
-            // Apply classes based on column content
-            headerCells.forEach(cell => {
-                const text = cell.textContent.trim();
-                
-                if (text === 'Category') {
-                    cell.classList.add('column-category');
-                } else if (text === 'Date') {
-                    cell.classList.add('column-date');
-                } else if (text === 'From') {
-                    cell.classList.add('column-from');
-                } else if (text === 'Subject') {
-                    cell.classList.add('column-subject');
-                } else if (text === 'Select') {
-                    cell.classList.add('column-select');
-                }
-                
-                // Apply same classes to all cells in this column
-                const columnIndex = Array.from(headerCells).indexOf(cell);
-                const bodyCells = table.querySelectorAll(`tbody tr td:nth-child(${columnIndex + 1})`);
-                
-                bodyCells.forEach(bodyCell => {
-                    if (text === 'Category') {
-                        bodyCell.classList.add('column-category');
-                    } else if (text === 'Date') {
-                        bodyCell.classList.add('column-date');
-                    } else if (text === 'From') {
-                        bodyCell.classList.add('column-from');
-                    } else if (text === 'Subject') {
-                        bodyCell.classList.add('column-subject');
-                    } else if (text === 'Select') {
-                        bodyCell.classList.add('column-select');
-                    }
-                });
-            });
-        }, 500); // Wait for table to render
-    }
-    
-    // Run on page load and when DOM changes
-    document.addEventListener('DOMContentLoaded', function() {
-        // Initial application
-        applyTableColumnClasses();
-        
-        // Set up observer for DOM changes
-        const observer = new MutationObserver(function(mutations) {
-            applyTableColumnClasses();
-        });
-        
-        // Start observing the document
-        observer.observe(document.body, { childList: true, subtree: true });
-        
-        // Also run periodically as a fallback
-        setInterval(applyTableColumnClasses, 1000);
-    });
-    </script>
-    """, unsafe_allow_html=True)
-
-    # Add category pill styling JavaScript
-    st.markdown(generate_category_pill_js(), unsafe_allow_html=True)

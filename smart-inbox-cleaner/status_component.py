@@ -128,13 +128,12 @@ def add_status_sidebar():
     <div style="margin-top: 50px;"></div>
     """, unsafe_allow_html=True)
     
+    st.sidebar.markdown("---")
+
     # Get version from environment variable or use default
     version = os.environ.get('ELECTRON_APP_VERSION', '1.0.0')
-    
-    # Add version and copyright info
-    st.sidebar.markdown("---")
-    st.sidebar.caption(f"v{version}")
-    st.sidebar.caption("© 2024 Smart Inbox Cleaner")
+    # Add version
+    st.sidebar.caption(f"Smart Inbox Cleaner v{version}")
 
 def setup_status_component():
     """Initialize the status component with Electron communication."""
