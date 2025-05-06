@@ -21,7 +21,7 @@ CLIENT_CONFIG = {
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        #"client_secret": "ADD_CLIENT_SECRET_HERE",  # Need a more secure solution as this identifies the google cloud console app
+        "client_secret": "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",  # Need a more secure solution as this identifies the google cloud console app
         "redirect_uris": ["http://localhost"]
     }
 }
@@ -33,6 +33,9 @@ SCOPES = [
     'https://www.googleapis.com/auth/userinfo.email', # Get user's email address
     'https://www.googleapis.com/auth/userinfo.profile' # Get user's basic profile info
 ]
+
+GMAIL_OAUTH_DIR = os.path.join(os.path.dirname(__file__), '.tokens')
+TOKEN_PATH = os.path.join(GMAIL_OAUTH_DIR, 'token.json')
 
 def get_credentials() -> Tuple[Optional[Credentials], Optional[str]]:
     """Gets user credentials and email for Google API access."""

@@ -392,7 +392,6 @@ const startPythonBackend = () => {
     // Add detailed logging before spawning the process
     const projectRoot = path.join(__dirname, '..');
     log.info('Project root directory:', projectRoot);
-    log.info('Expected client_secret.json location:', path.join(projectRoot, 'gmail-oauth', 'client_secret.json'));
     log.info('Current working directory:', process.cwd());
     
     pythonProcess = spawn(command, args, {
