@@ -280,6 +280,8 @@ if 'categorization_running' not in st.session_state:
     st.session_state.categorization_running = False
 if 'table_editable' not in st.session_state:
     st.session_state.table_editable = True # Controls whether the table is editable
+if 'progress_text' not in st.session_state:
+    st.session_state.progress_text = None # Stores current progress text
 if 'debug_mode' not in st.session_state:
     st.session_state.debug_mode = False
 
@@ -289,26 +291,26 @@ if 'debug_mode' not in st.session_state:
 # --- App Header with better styling ---
 st.markdown("<h1 style='text-align: left; margin-bottom: 30px;'>📥 Smart Inbox Cleaner</h1>", unsafe_allow_html=True)
 
-# --- Add Process Inbox Button below the title ---
+# --- Add Categorise Inbox Button below the title ---
 if st.session_state.logged_in:
     # Create a layout with columns for left alignment of the button and progress text
     left_col, progress_col = st.columns([1, 3])
     
-    # Process Inbox button in the left column
+    # Categorise Inbox button in the left column
     with left_col:
         if not st.session_state.categorization_running:
-            if st.button("Process Inbox", key="process_inbox_button", type="primary", use_container_width=True):
+            if st.button("Categorise Inbox", key="process_inbox_button", type="primary", use_container_width=True):
                 if not st.session_state.emails:
                     st.warning("No emails fetched to categorize.")
                 else:
                     st.session_state.categorization_running = True
                     st.session_state.table_editable = False # Make table non-editable during processing
                     # Initialize progress info in session state
-                    st.session_state.progress_text = "Starting processing..."
+                    st.session_state.progress_text = "Categorising 0 out of 0 emails (0%)"
                     # Rerun to switch button and start processing below
                     st.rerun()
         else:
-            if st.button("Stop Processing", key="stop_process_button", type="secondary", use_container_width=True):
+            if st.button("Stop Categorising", key="stop_process_button", type="secondary", use_container_width=True):
                 st.session_state.categorization_running = False # Signal stop
                 st.session_state.table_editable = True # Make table editable again
                 
@@ -325,14 +327,19 @@ if st.session_state.logged_in:
     # Display progress text in the right column when processing
     with progress_col:
         if st.session_state.categorization_running:
-            # Show progress info with subtle styling
-            progress_text = st.session_state.get('progress_text', 'Processing...')
-            st.markdown(f"""
+            # Create a placeholder for progress updates
+            progress_placeholder = st.empty()
+            # Initialize with the current progress text
+            progress_text = st.session_state.get('progress_text', 'Categorising 0 out of 0 emails (0%)')
+            progress_placeholder.markdown(f"""
             <div style="padding-top: 8px; color: #555; display: flex; align-items: center;">
                 <div style="width: 12px; height: 12px; background-color: #4c7bff; border-radius: 50%; margin-right: 8px;"></div>
                 {progress_text}
             </div>
             """, unsafe_allow_html=True)
+            
+            # Store the placeholder in session state for the callback to use
+            st.session_state.progress_placeholder = progress_placeholder
         elif st.session_state.get('progress_text') and st.session_state.categorization_run:
             # Show a success message briefly, then clear it on the next rerun
             st.markdown(f"""
@@ -511,8 +518,18 @@ else:
         # --- Callbacks --- 
         def update_progress(current, total):
             # Update the progress text in session state
-            progress_text = f"Processing email {current}/{total}... ({int(current/total*100)}%)"
+            progress_text = f"Categorising {current} out of {total} emails ({int(current/total*100)}%)"
             st.session_state.progress_text = progress_text
+            
+            # Update the progress placeholder if it exists
+            if 'progress_placeholder' in st.session_state:
+                progress_placeholder = st.session_state.progress_placeholder
+                progress_placeholder.markdown(f"""
+                <div style="padding-top: 8px; color: #555; display: flex; align-items: center;">
+                    <div style="width: 12px; height: 12px; background-color: #4c7bff; border-radius: 50%; margin-right: 8px;"></div>
+                    {progress_text}
+                </div>
+                """, unsafe_allow_html=True)
             
         def check_if_stopped():
             return not st.session_state.categorization_running
@@ -549,7 +566,10 @@ else:
             
             if was_stopped:
                 logging.info("Categorization stopped by user.")
-                st.session_state.progress_text = "Processing cancelled."
+                st.session_state.progress_text = "Categorisation cancelled."
+                # Clear the progress placeholder if we're stopping from user action
+                if 'progress_placeholder' in st.session_state:
+                    st.session_state.pop('progress_placeholder')
                 pass 
             elif categorized_email_list is None and st.session_state.categorization_method == CAT_METHOD_LLM:
                 # Reset to initial state when categorization fails
@@ -558,7 +578,10 @@ else:
                 if not st.session_state.df.empty:
                     st.session_state.df['category'] = CAT_UNCATEGORISED
                 
-                st.session_state.progress_text = "Processing failed."
+                st.session_state.progress_text = "Categorisation failed."
+                # Clear the progress placeholder
+                if 'progress_placeholder' in st.session_state:
+                    st.session_state.pop('progress_placeholder')
                 st.warning("Categorization stopped or failed unexpectedly.")
             elif categorized_email_list:
                 logging.info(f"Categorization successful. Received {len(categorized_email_list)} emails back.")
@@ -577,7 +600,10 @@ else:
                 st.session_state.categorization_run = True
                 st.session_state.show_move_confirmation = False
                 duration = pd.Timestamp.now() - start_time
-                st.session_state.progress_text = f"Processing complete in {duration.total_seconds():.2f}s"
+                st.session_state.progress_text = f"Categorisation complete in {duration.total_seconds():.2f}s"
+                # Clear the progress placeholder
+                if 'progress_placeholder' in st.session_state:
+                    st.session_state.pop('progress_placeholder')
                 st.toast(f"Complete in {duration.total_seconds():.2f}s")
                 st.rerun()  # Add rerun to refresh the UI state
             else: # Completed but no results
@@ -587,9 +613,9 @@ else:
                 if not st.session_state.df.empty:
                     st.session_state.df['category'] = CAT_UNCATEGORISED
                     
-                st.session_state.progress_text = "Processing completed with no results."
+                st.session_state.progress_text = "Categorisation completed with no results."
                 logging.warning("Categorization function returned an empty list or None (and wasn't stopped).")
-                st.warning("Categorization ran but produced no results.")
+                st.warning("Categorisation ran but produced no results.")
                 # Force a rerun to reset the UI
                 st.rerun()
 
