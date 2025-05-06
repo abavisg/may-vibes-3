@@ -1,6 +1,8 @@
 import streamlit as st
 import logging # Use logging
 import os  # Added back for env vars
+import email
+from email import header as email_header
 # Removed os import
 from email_client import connect_oauth
 from email_mover import move_emails
@@ -16,8 +18,8 @@ import pandas as pd
 import ollama # Import ollama to list models
 # Import the status component module
 from status_component import setup_status_component, is_electron
-import email.header  # For decoding email subjects
 import re  # For regex pattern matching
+from email_modal import EmailModal
 
 # --- Setup Logging (Optional: Configure Streamlit's logger if needed) ---
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') 
@@ -62,6 +64,17 @@ html, body, [class*="st-"] {
     display: inline-block;
     text-align: center;
     min-width: 80px;
+}
+
+/* Modal customization */
+div[data-modal-container] > div:first-child {
+    border-bottom: none !important;
+}
+
+/* Red confirmation button in modal */
+div[data-modal-container] div[data-testid="element-container"]:has(button[kind="primary"]) button {
+    background-color: #ff4c4c !important;
+    border-color: #ff4c4c !important;
 }
 
 .stDataFrame [data-testid="StyledDataFrameDataCell"] div:contains("Read") {
@@ -1127,84 +1140,112 @@ else:
             # Move to the bottom of the UI with some space
             st.markdown("<div style='height: 20px'></div>", unsafe_allow_html=True)
             
-            # Check if we should show the confirmation dialog
-            if st.session_state.get('show_confirmation_dialog', False):
-                # Get the confirmation message from session state
-                confirmation_msg = st.session_state.get('confirmation_message', "Are you sure you want to move these emails?")
-                
-                # Display the confirmation message in a styled box
-                st.markdown(f"<div style='padding: 15px; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 20px; border: 1px solid #eaeaea;'>{confirmation_msg}</div>", unsafe_allow_html=True)
-                
-                # Create columns for the confirmation buttons
-                confirm_cols = st.columns([1, 1, 2])
-                with confirm_cols[0]:
-                    if st.button("Yes, Move Emails", key="confirm_yes_btn", type="primary"):
-                        if not st.session_state.imap_client:
-                            st.error("IMAP client not available. Cannot move emails.")
-                        else:
-                            with st.spinner("Moving emails..."):
-                                relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy()
-                                if not relevant_df.empty:
-                                    uids_to_move = relevant_df['uid'].tolist()
-                                    category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
-                                    moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
-                                    if moved_uids is not None:
-                                        st.toast(f"Moved {len(moved_uids)} email(s).")
-                                        st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
-                                        st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
-                                    else:
-                                        st.error("Move operation failed. Check logs.")
-                                else:
-                                    st.toast("No relevant emails found to move.")
-                        st.session_state.show_confirmation_dialog = False
-                        st.rerun()
-                with confirm_cols[1]:
-                    if st.button("Cancel", key="confirm_no_btn", type="secondary"):
-                        st.session_state.show_confirmation_dialog = False
-                        st.rerun()
+            # Initialize the modal component
+            if 'confirm_modal' not in st.session_state:
+                st.session_state.confirm_modal = EmailModal(
+                    "Moving emails confirmation", 
+                    key="confirm_move_modal",
+                    padding=20,
+                    max_width=600,
+                    hide_close_button=True
+                )
             
             # Create columns for the main action buttons
             button_cols = st.columns([1, 1, 1])
             
-            # Only show the confirm button if we're not already showing the confirmation dialog
-            if not st.session_state.get('show_confirmation_dialog', False):
-                # Confirm button (styled like in design)
-                with button_cols[0]:
-                    # Only enable after categorization has run
-                    confirm_disabled = not st.session_state.categorization_run
-                            
-                    if st.button("Confirm & Move", key="confirm_move_btn", type="primary", disabled=confirm_disabled):
-                        # Initialize confirmation state if needed
-                        if 'show_confirmation_dialog' not in st.session_state:
-                            st.session_state.show_confirmation_dialog = False
-                            
-                        # Calculate email counts by category
-                        current_counts = st.session_state.df['category'].value_counts()
-                        st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
+            # Confirm button (styled like in design)
+            with button_cols[0]:
+                # Only enable after categorization has run
+                confirm_disabled = not st.session_state.categorization_run
                         
-                        if st.session_state.move_counts:
-                            # Create confirmation message
-                            confirmation_msg = "Are you sure you want to move: "
-                            move_details = []
-                            for cat, count in st.session_state.move_counts.items():
-                                if count > 0:
-                                    move_details.append(f"{count} {'email' if count == 1 else 'emails'} to {cat}")
-                            confirmation_msg += ", ".join(move_details)
-                            
-                            # Store for reuse across reruns
-                            st.session_state.confirmation_message = confirmation_msg
-                            
-                            # Set state to show dialog and force a rerun to show it
-                            st.session_state.show_confirmation_dialog = True
-                            st.rerun()
-                        else:
-                            st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
+                if st.button("Confirm & Move", key="confirm_move_btn", type="primary", disabled=confirm_disabled):
+                    # Calculate email counts by category
+                    current_counts = st.session_state.df['category'].value_counts()
+                    st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
+                    
+                    if st.session_state.move_counts:
+                        # Create confirmation message with better formatting and styling
+                        confirmation_msg = "Are you sure you want to move: <br>"
+                        move_details = []
+                        for cat, count in st.session_state.move_counts.items():
+                            if count > 0:
+                                # Add category-specific styling with colors matching the UI
+                                if cat == "Action":
+                                    color = "#ff4c4c"
+                                elif cat == "Read":
+                                    color = "#4c7bff"
+                                elif cat == "Information":
+                                    color = "#4cd97b"
+                                elif cat == "Events":
+                                    color = "#ff9e4c"
+                                else:
+                                    color = "#e0e0e0"
+                                
+                                styled_cat = f'<span style="color: {color}; font-weight: 500;">{cat}</span>'
+                                move_details.append(f"{count} {'email' if count == 1 else 'emails'} to {styled_cat}")
+                        
+                        confirmation_msg += "<br>".join(move_details)
+                        
+                        # Store for use in modal
+                        st.session_state.confirmation_message = confirmation_msg
+                        
+                        # Open the modal
+                        st.session_state.confirm_modal.open()
+                    else:
+                        st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
             
             # Next Batch button - always show this
             with button_cols[2]:
                 if st.button("Next Batch", key="next_batch_btn", type="secondary"):
                     # Implementation could be added later
                     st.toast("Next batch functionality would be implemented here")
+            
+            # Modal content setup
+            if st.session_state.confirm_modal.is_open():
+                with st.session_state.confirm_modal.container():
+                    # Get the confirmation message from session state
+                    confirmation_msg = st.session_state.get('confirmation_message', "Are you sure you want to move these emails?")
+                    
+                    # Display the confirmation message with HTML formatting
+                    st.markdown(
+                        f'<div style="font-size: 16px; margin-bottom: 20px; line-height: 1.5;">{confirmation_msg}</div>', 
+                        unsafe_allow_html=True
+                    )
+                    
+                    # Create columns for the confirmation buttons
+                    confirm_cols = st.columns([1, 1])
+                    with confirm_cols[0]:
+                        if st.button("Yes, Move Emails", key="modal_confirm_yes_btn", 
+                                   use_container_width=True,
+                                   type="primary", 
+                                   help="Move the emails to their category folders"):
+                            if not st.session_state.imap_client:
+                                st.error("IMAP client not available. Cannot move emails.")
+                            else:
+                                with st.spinner("Moving emails..."):
+                                    relevant_df = st.session_state.df[st.session_state.df['category'].isin(MOVE_CATEGORIES)].copy()
+                                    if not relevant_df.empty:
+                                        uids_to_move = relevant_df['uid'].tolist()
+                                        category_map = pd.Series(relevant_df.category.values, index=relevant_df.uid).to_dict()
+                                        moved_uids = move_emails(st.session_state.imap_client, uids_to_move, category_map)
+                                        if moved_uids is not None:
+                                            st.toast(f"Moved {len(moved_uids)} email(s).")
+                                            st.session_state.df = st.session_state.df[~st.session_state.df['uid'].isin(moved_uids)]
+                                            st.session_state.emails = [email for email in st.session_state.emails if email['uid'] not in moved_uids]
+                                        else:
+                                            st.error("Move operation failed. Check logs.")
+                                    else:
+                                        st.toast("No relevant emails found to move.")
+                        
+                            # Close the modal and rerun to refresh the UI
+                            st.session_state.confirm_modal.close()
+                            st.rerun()
+                    
+                    with confirm_cols[1]:
+                        if st.button("Cancel", key="modal_confirm_no_btn", type="secondary", use_container_width=True):
+                            # Close the modal and rerun to refresh the UI
+                            st.session_state.confirm_modal.close()
+                            st.rerun()
 
     elif st.session_state.logged_in:
         # Show only if logged in but no emails were found/loaded
