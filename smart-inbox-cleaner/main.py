@@ -27,12 +27,11 @@ from constants import (
 )
 from categorizer import categorize_emails as categorize_emails_rules
 from helper_functions import decode_subject, get_ollama_models
-from styles import get_app_styles, get_debug_styles, get_row_style_html
+# Import the consolidated styles
+from styles import get_all_styles, get_debug_styles
 from html_generators import (
-    generate_status_html, 
     generate_progress_html, 
     generate_complete_html, 
-    generate_category_pill_js,
     generate_email_table_html
 )
 
@@ -191,7 +190,8 @@ st.set_page_config(
 )
 
 # --- Apply CSS Styles ---
-st.markdown(get_app_styles(), unsafe_allow_html=True)
+# Apply the consolidated styles from styles.py
+st.markdown(get_all_styles(), unsafe_allow_html=True)
 
 # Add the debug CSS separately when enabled
 if st.session_state.get('debug_layout', False):
@@ -230,7 +230,7 @@ if 'debug_mode' not in st.session_state:
     st.session_state.debug_mode = False
 
 # --- App Header ---
-st.markdown("<h1 style='text-align: left; margin-bottom: 30px;'>📥 Smart Inbox Cleaner</h1>", unsafe_allow_html=True)
+st.markdown('<div class="app-header"><h1>📥 Smart Inbox Cleaner</h1></div>', unsafe_allow_html=True)
 
 # --- Add Categorise Inbox Button below the title ---
 if st.session_state.logged_in:
@@ -283,7 +283,7 @@ if st.session_state.logged_in:
             st.session_state.progress_text = None
     
     # Add spacing after the button
-    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+    #st.markdown("<div style='margin-bottom: 20px; background-color: red;'></div>", unsafe_allow_html=True)
 
 # --- Login Section ---
 if not st.session_state.logged_in:
@@ -589,19 +589,66 @@ else:
         # Ensure latest emails are always at the top before display
         st.session_state.df = st.session_state.df.sort_values(by='date', ascending=False)
 
-        # Add batch information (similar to the design)
+        # Add batch information
         total_emails = len(st.session_state.emails)
         current_batch_size = min(250, len(st.session_state.df))
         
         # Get category counts 
         category_counts = st.session_state.df['category'].value_counts().sort_index()
         
-        # Generate and display the status HTML
-        status_html = generate_status_html(category_counts, current_batch_size, total_emails)
-        st.markdown(status_html, unsafe_allow_html=True)
+        # Create simplified status bar with columns layout
+        status_left, status_right = st.columns([3, 1])
+        
+        with status_left:
+            # Create a horizontal container for the status pills
+            st.markdown('<div class="status-bar-left">', unsafe_allow_html=True)
+            
+            # Display the label first
+            st.markdown('<div class="status-label">Inbox Status:</div>', unsafe_allow_html=True)
+            
+            # Create a single line of HTML containing all pills
+            pills_html = '<div class="status-pills">'
+            
+            # Add a pill for each category with the appropriate color
+            for cat, count in category_counts.items():
+                if cat == "Action":
+                    color = "#ff4c4c"
+                    text_color = "white"
+                elif cat == "Read":
+                    color = "#4c7bff"
+                    text_color = "white"
+                elif cat == "Information":
+                    color = "#4cd97b"
+                    text_color = "white"
+                elif cat == "Events":
+                    color = "#ff9e4c"
+                    text_color = "white"
+                else:  # Uncategorised or any other
+                    color = "#e0e0e0"
+                    text_color = "#555"
+                    
+                pills_html += f'<div class="category-pill" style="background-color: {color}; color: {text_color};">{cat}: {count}</div>'
+            
+            # Close the pills container
+            pills_html += '</div>'
+            
+            # Display all pills at once to ensure they're in the same line
+            st.markdown(pills_html, unsafe_allow_html=True)
+            
+            # Close the status bar
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with status_right:
+            st.markdown('<div class="status-bar-right">', unsafe_allow_html=True)
 
-        # Add row styling CSS
-        st.markdown(get_row_style_html(), unsafe_allow_html=True)
+            # Display batch information right-aligned
+            st.markdown(f'<div class="status-batch">Batch: {current_batch_size} of {total_emails}</div>', unsafe_allow_html=True)
+            
+            # Close the status bar
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        # Create a simple table container
+        st.markdown('<div class="table-container">', unsafe_allow_html=True)
 
         # Create a loading overlay for the table when processing
         table_disabled = False
@@ -610,27 +657,25 @@ else:
             st.markdown('<div class="disabled-table">', unsafe_allow_html=True)
             table_disabled = True
 
-        # Create a temporary dataframe without the color column
+        # Display email table logic (unchanged)
         display_df = st.session_state.df.copy()
-
-        # Before displaying the table, ensure subjects are decoded
         if not display_df.empty and 'subject' in display_df.columns:
-            # Only decode if subject is a string and contains encoding pattern
             display_df['subject'] = display_df['subject'].apply(lambda s: decode_subject(s) if isinstance(s, str) and "=?UTF-8?" in s else s)
         
-        # Display the custom HTML table instead of the data editor
-        # Only include the columns we want to display in the HTML table
         display_cols = ['date', 'from', 'subject', 'category']
         html_display_df = display_df[display_cols].copy() if not display_df.empty else pd.DataFrame(columns=display_cols)
         
-        # Generate and display the HTML table
         email_table_html = generate_email_table_html(html_display_df)
-        
-        # Display the HTML table using components.v1.html
         st.components.v1.html(email_table_html, height=600, scrolling=True)
         
-        # Handle category changes from HTML dropdown
-        # This uses URL query parameters which will be updated via JavaScript
+        # Close the disabled-table div if it was opened
+        if table_disabled:
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        # Close the table container
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Handle category changes from HTML dropdown (unchanged)
         params = st.query_params
         if 'email_id' in params and 'category' in params:
             try:
@@ -651,16 +696,9 @@ else:
                 st.error(f"Error processing category update: {e}")
                 params.clear()
         
-        # Close the disabled-table div if it was opened
-        if table_disabled:
-            st.markdown('</div>', unsafe_allow_html=True)
-
         # --- Action Buttons Row (only show when categorization is completed) ---
         if st.session_state.categorization_run and not st.session_state.categorization_running:
-            # Move to the bottom of the UI with some space
-            st.markdown("<div style='height: 20px'></div>", unsafe_allow_html=True)
-            
-            # Initialize the modal component
+            # Initialize the modal component (unchanged)
             if 'confirm_modal' not in st.session_state:
                 st.session_state.confirm_modal = EmailModal(
                     "Moving emails confirmation", 
@@ -670,125 +708,97 @@ else:
                     hide_close_button=True
                 )
             
-            # Update modal title based on confirmation type
-            def update_modal_title(modal, title):
-                """Update the title of the modal"""
-                # Access the internal title of the modal
-                modal._title = title
+            # Only enable action buttons after categorization has run
+            confirm_disabled = not st.session_state.categorization_run
+            archive_disabled = not st.session_state.categorization_run
             
-            # Initialize confirmation type state if not exists
-            if 'confirmation_type' not in st.session_state:
-                st.session_state.confirmation_type = None
-            
-            # Add custom CSS to reduce button spacing
+            # Create a custom bottom toolbar with right-aligned buttons
             st.markdown("""
-            <style>
-            .button-row {
-                display: flex;
-                align-items: center;
-                margin-bottom: 16px;
-            }
-            .button-row > div {
-                padding: 0 !important;
-                margin: 0 !important;
-            }
-            .button-row button {
-                margin: 0 !important;
-            }
-            .confirm-button {
-                padding-right: 4px !important;
-            }
-            .archive-button {
-                padding-left: 4px !important;
-                padding-right: 10px !important;
-            }
-            .next-button {
-                padding-left: 10px !important;
-            }
-            </style>
+            <div class="bottom-toolbar">
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <div id="toolbar-placeholder"></div>
+                </div>
+            </div>
             """, unsafe_allow_html=True)
             
-            # Open the button row container
-            st.markdown('<div class="button-row">', unsafe_allow_html=True)
-            
-            # Create three-column layout with custom widths
-            button_cols = st.columns([1.1, 1.8, 1.1])
-            
-            # Confirm button in first column
-            with button_cols[0]:
-                st.markdown('<div class="confirm-button">', unsafe_allow_html=True)
-                # Only enable after categorization has run
-                confirm_disabled = not st.session_state.categorization_run
-                        
-                if st.button("Confirm & Move", key="confirm_move_btn", type="primary", disabled=confirm_disabled, use_container_width=True):
-                    # Calculate email counts by category
-                    current_counts = st.session_state.df['category'].value_counts()
-                    st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
-                    
-                    if st.session_state.move_counts:
-                        # Create confirmation message with better formatting and styling
-                        confirmation_msg = ModalFactory.create_confirmation_message(
-                            "move",
-                            move_counts=st.session_state.move_counts
-                        )
-                        
-                        # Store for use in modal
-                        st.session_state.confirmation_message = confirmation_msg
-                        st.session_state.confirmation_type = "move"
-                        
-                        # Set the modal title
-                        update_modal_title(st.session_state.confirm_modal, "Moving emails confirmation")
-                        
-                        # Open the modal
-                        st.session_state.confirm_modal.open()
-                        st.rerun()
-                    else:
-                        st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
-                st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Archive Information Emails button in second column
-            with button_cols[1]:
-                st.markdown('<div class="archive-button">', unsafe_allow_html=True)
-                # Only enable after categorization has run
-                archive_disabled = not st.session_state.categorization_run
+            # Create a container for the actual buttons (hidden from view but functional)
+            button_container = st.container()
+            with button_container:
+                # Create columns for the buttons
+                col1, col2 = st.columns(2)
                 
-                if st.button("Archive Information Emails", key="archive_info_btn", type="secondary", disabled=archive_disabled, use_container_width=True):
-                    # Count Information emails
-                    info_count = len(st.session_state.df[st.session_state.df['category'] == CAT_INFO])
-                    
-                    if info_count > 0:
-                        # Create confirmation message with better formatting and styling
-                        confirmation_msg = ModalFactory.create_confirmation_message(
-                            "archive",
-                            info_count=info_count
-                        )
-                        
-                        # Store for use in modal
-                        st.session_state.confirmation_message = confirmation_msg
-                        st.session_state.confirmation_type = "archive"
-                        
-                        # Set the modal title
-                        update_modal_title(st.session_state.confirm_modal, "Archive emails confirmation")
-                        
-                        # Open the modal
-                        st.session_state.confirm_modal.open()
-                        st.rerun()
-                    else:
-                        st.toast("No Information emails to archive.")
-                st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Next Batch button in third column
-            with button_cols[2]:
-                st.markdown('<div class="next-button">', unsafe_allow_html=True)
-                if st.button("Next Batch", key="next_batch_btn", type="secondary", use_container_width=True):
-                    # Implementation could be added later
-                    st.toast("Next batch functionality would be implemented here")
-                st.markdown('</div>', unsafe_allow_html=True)
+                # Confirm & Move button
+                with col1:
+                    confirm_clicked = st.button(
+                        "Confirm & Move", 
+                        key="confirm_move_btn", 
+                        type="primary", 
+                        disabled=confirm_disabled,
+                        use_container_width=True
+                    )
                 
-            # Close the button row container
-            st.markdown('</div>', unsafe_allow_html=True)
+                # Archive Information Emails button
+                with col2:
+                    archive_clicked = st.button(
+                        "Archive Information Emails", 
+                        key="archive_info_btn", 
+                        type="secondary", 
+                        disabled=archive_disabled,
+                        use_container_width=True
+                    )
             
-            # Modal content setup
+            # Handle Confirm & Move button click
+            if confirm_clicked:
+                # Calculate email counts by category
+                current_counts = st.session_state.df['category'].value_counts()
+                st.session_state.move_counts = {cat: current_counts.get(cat, 0) for cat in MOVE_CATEGORIES if cat in current_counts and current_counts.get(cat, 0) > 0}
+                
+                if st.session_state.move_counts:
+                    # Create confirmation message with better formatting and styling
+                    confirmation_msg = ModalFactory.create_confirmation_message(
+                        "move",
+                        move_counts=st.session_state.move_counts
+                    )
+                    
+                    # Store for use in modal
+                    st.session_state.confirmation_message = confirmation_msg
+                    st.session_state.confirmation_type = "move"
+                    
+                    # Set the modal title
+                    st.session_state.confirm_modal._title = "Moving emails confirmation"
+                    
+                    # Open the modal
+                    st.session_state.confirm_modal.open()
+                    st.rerun()
+                else:
+                    st.toast(f"No emails found in {', '.join(MOVE_CATEGORIES)} categories to move.")
+            
+            # Handle Archive Information Emails button click
+            if archive_clicked:
+                # Count Information emails
+                info_count = len(st.session_state.df[st.session_state.df['category'] == CAT_INFO])
+                
+                if info_count > 0:
+                    # Create confirmation message with better formatting and styling
+                    confirmation_msg = ModalFactory.create_confirmation_message(
+                        "archive",
+                        info_count=info_count
+                    )
+                    
+                    # Store for use in modal
+                    st.session_state.confirmation_message = confirmation_msg
+                    st.session_state.confirmation_type = "archive"
+                    
+                    # Set the modal title
+                    st.session_state.confirm_modal._title = "Archive emails confirmation"
+                    
+                    # Open the modal
+                    st.session_state.confirm_modal.open()
+                    st.rerun()
+                else:
+                    st.toast("No Information emails to archive.")
+            
+            # Modal content setup (unchanged)
             if st.session_state.confirm_modal.is_open():
                 # Use the factory to handle modal content
                 confirmation_type = st.session_state.get('confirmation_type')

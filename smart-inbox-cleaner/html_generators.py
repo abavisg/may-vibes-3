@@ -72,8 +72,8 @@ def generate_email_table_html(df):
             text = str(text)
         return html.escape(text)
     
-    # Build CSS for the table
-    css = """
+    # CSS for email table - included directly in the component
+    table_css = """
     <style>
     .email-table-container {
         width: 100%;
@@ -81,14 +81,14 @@ def generate_email_table_html(df):
         margin-top: 20px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
     }
-    
+
     .email-table {
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
         font-size: 14px;
     }
-    
+
     .email-table th {
         background-color: #f8f9fa;
         font-weight: 600;
@@ -98,27 +98,27 @@ def generate_email_table_html(df):
         top: 0;
         z-index: 1;
     }
-    
+
     .email-table td {
         padding: 12px 16px;
         vertical-align: middle;
         border-top: none;
     }
-    
+
     .email-table tr:nth-child(even) {
         background-color: #f9f9f9;
     }
-    
+
     .email-table tr:hover {
         background-color: rgba(245, 245, 250, 0.8);
     }
-    
+
     /* Column widths */
     .date-col {
         width: 140px;
         white-space: nowrap;
     }
-    
+
     .from-col {
         width: 180px;
         white-space: nowrap;
@@ -126,19 +126,19 @@ def generate_email_table_html(df):
         text-overflow: ellipsis;
         max-width: 240px;
     }
-    
+
     .subject-col {
         min-width: 300px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
-    
+
     .category-col {
         width: 120px;
         text-align: center;
     }
-    
+
     /* Category select styling */
     .category-select {
         border-radius: 12px;
@@ -158,33 +158,33 @@ def generate_email_table_html(df):
         background-size: 12px;
         padding-right: 24px;
     }
-    
+
     /* Category specific styles */
     .select-Action {
         background-color: #ff4c4c;
         color: white;
     }
-    
+
     .select-Read {
         background-color: #4c7bff;
         color: white;
     }
-    
+
     .select-Information {
         background-color: #4cd97b;
         color: white;
     }
-    
+
     .select-Events {
         background-color: #ff9e4c;
         color: white;
     }
-    
+
     .select-Uncategorised {
         background-color: #e0e0e0;
         color: #555;
     }
-    
+
     /* Style for the dropdown options */
     .category-select option {
         background-color: white;
@@ -340,7 +340,7 @@ def generate_email_table_html(df):
     
     # Start building the HTML table
     html_parts = []
-    html_parts.append(css)
+    html_parts.append(table_css)  # Include CSS directly in the component
     html_parts.append(javascript)
     html_parts.append('<div class="email-table-container"><table class="email-table">')
     
